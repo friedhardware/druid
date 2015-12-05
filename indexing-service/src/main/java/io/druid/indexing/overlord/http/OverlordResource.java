@@ -29,6 +29,9 @@ import com.google.common.io.ByteSource;
 import com.google.common.util.concurrent.SettableFuture;
 import com.google.inject.Inject;
 import com.metamx.common.logger.Logger;
+
+import io.druid.audit.AuditInfo;
+import io.druid.audit.AuditManager;
 import io.druid.common.config.JacksonConfigManager;
 import io.druid.indexing.common.TaskStatus;
 import io.druid.indexing.common.actions.TaskActionClient;
@@ -44,18 +47,25 @@ import io.druid.indexing.overlord.setup.WorkerBehaviorConfig;
 import io.druid.metadata.EntryExistsException;
 import io.druid.tasklogs.TaskLogStreamer;
 import io.druid.timeline.DataSegment;
-import org.joda.time.DateTime;
 
+import org.joda.time.DateTime;
+import org.joda.time.Interval;
+
+import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+import javax.ws.rs.core.Response.Status;
+
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
@@ -74,6 +84,7 @@ public class OverlordResource
   private final TaskStorageQueryAdapter taskStorageQueryAdapter;
   private final TaskLogStreamer taskLogStreamer;
   private final JacksonConfigManager configManager;
+  private final AuditManager auditManager;
 
   private AtomicReference<WorkerBehaviorConfig> workerConfigRef = null;
 
@@ -82,13 +93,15 @@ public class OverlordResource
       TaskMaster taskMaster,
       TaskStorageQueryAdapter taskStorageQueryAdapter,
       TaskLogStreamer taskLogStreamer,
-      JacksonConfigManager configManager
+      JacksonConfigManager configManager,
+      AuditManager auditManager
   ) throws Exception
   {
     this.taskMaster = taskMaster;
     this.taskStorageQueryAdapter = taskStorageQueryAdapter;
     this.taskLogStreamer = taskLogStreamer;
     this.configManager = configManager;
+    this.auditManager = auditManager;
   }
 
   @POST
@@ -182,20 +195,64 @@ public class OverlordResource
     return Response.ok(workerConfigRef.get()).build();
   }
 
+  // default value is used for backwards compatibility
   @POST
   @Path("/worker")
   @Consumes(MediaType.APPLICATION_JSON)
   public Response setWorkerConfig(
-      final WorkerBehaviorConfig workerBehaviorConfig
+      final WorkerBehaviorConfig workerBehaviorConfig,
+      @HeaderParam(AuditManager.X_DRUID_AUTHOR) @DefaultValue("") final String author,
+      @HeaderParam(AuditManager.X_DRUID_COMMENT) @DefaultValue("") final String comment,
+      @Context HttpServletRequest req
   )
   {
-    if (!configManager.set(WorkerBehaviorConfig.CONFIG_KEY, workerBehaviorConfig)) {
+    if (!configManager.set(
+        WorkerBehaviorConfig.CONFIG_KEY,
+        workerBehaviorConfig,
+        new AuditInfo(author, comment, req.getRemoteAddr())
+    )) {
       return Response.status(Response.Status.BAD_REQUEST).build();
     }
 
     log.info("Updating Worker configs: %s", workerBehaviorConfig);
 
     return Response.ok().build();
+  }
+
+  @GET
+  @Path("/worker/history")
+  @Produces(MediaType.APPLICATION_JSON)
+  public Response getWorkerConfigHistory(
+      @QueryParam("interval") final String interval,
+      @QueryParam("count") final Integer count
+  )
+  {
+    Interval theInterval = interval == null ? null : new Interval(interval);
+    if (theInterval == null && count != null) {
+      try {
+        return Response.ok(
+            auditManager.fetchAuditHistory(
+                WorkerBehaviorConfig.CONFIG_KEY,
+                WorkerBehaviorConfig.CONFIG_KEY,
+                count
+            )
+        )
+                       .build();
+      }
+      catch (IllegalArgumentException e) {
+        return Response.status(Response.Status.BAD_REQUEST)
+                       .entity(ImmutableMap.<String, Object>of("error", e.getMessage()))
+                       .build();
+      }
+    }
+    return Response.ok(
+        auditManager.fetchAuditHistory(
+            WorkerBehaviorConfig.CONFIG_KEY,
+            WorkerBehaviorConfig.CONFIG_KEY,
+            theInterval
+        )
+    )
+                   .build();
   }
 
   @POST
@@ -504,6 +561,9 @@ public class OverlordResource
       }
       if (status.isPresent()) {
         data.put("statusCode", status.get().getStatusCode().toString());
+        if(status.get().isComplete()) {
+          data.put("duration", status.get().getDuration());
+        }
       }
       return data;
     }

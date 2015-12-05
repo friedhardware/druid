@@ -24,6 +24,8 @@ import io.druid.indexing.common.actions.LockTryAcquireAction;
 import io.druid.indexing.common.actions.TaskActionClient;
 import org.joda.time.Interval;
 
+import java.util.Map;
+
 public abstract class AbstractFixedIntervalTask extends AbstractTask
 {
   @JsonIgnore
@@ -32,20 +34,40 @@ public abstract class AbstractFixedIntervalTask extends AbstractTask
   protected AbstractFixedIntervalTask(
       String id,
       String dataSource,
-      Interval interval
+      Interval interval,
+      Map<String, Object> context
   )
   {
-    this(id, id, new TaskResource(id, 1), dataSource, interval);
+    this(id, id, new TaskResource(id, 1), dataSource, interval, context);
+  }
+
+  protected AbstractFixedIntervalTask(
+      String id,
+      TaskResource taskResource,
+      String dataSource,
+      Interval interval,
+      Map<String, Object> context
+  )
+  {
+    this(
+        id,
+        id,
+        taskResource == null ? new TaskResource(id, 1) : taskResource,
+        dataSource,
+        interval,
+        context
+    );
   }
 
   protected AbstractFixedIntervalTask(
       String id,
       String groupId,
       String dataSource,
-      Interval interval
+      Interval interval,
+      Map<String, Object> context
   )
   {
-    this(id, groupId, new TaskResource(id, 1), dataSource, interval);
+    this(id, groupId, new TaskResource(id, 1), dataSource, interval, context);
   }
 
   protected AbstractFixedIntervalTask(
@@ -53,10 +75,11 @@ public abstract class AbstractFixedIntervalTask extends AbstractTask
       String groupId,
       TaskResource taskResource,
       String dataSource,
-      Interval interval
+      Interval interval,
+      Map<String, Object> context
   )
   {
-    super(id, groupId, taskResource, dataSource);
+    super(id, groupId, taskResource, dataSource, context);
     this.interval = Preconditions.checkNotNull(interval, "interval");
     Preconditions.checkArgument(interval.toDurationMillis() > 0, "interval empty");
   }
@@ -64,7 +87,7 @@ public abstract class AbstractFixedIntervalTask extends AbstractTask
   @Override
   public boolean isReady(TaskActionClient taskActionClient) throws Exception
   {
-    return taskActionClient.submit(new LockTryAcquireAction(interval)).isPresent();
+    return taskActionClient.submit(new LockTryAcquireAction(interval)) != null;
   }
 
   @JsonProperty

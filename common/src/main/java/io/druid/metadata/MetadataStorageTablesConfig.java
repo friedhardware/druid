@@ -29,7 +29,7 @@ public class MetadataStorageTablesConfig
 {
   public static MetadataStorageTablesConfig fromBase(String base)
   {
-    return new MetadataStorageTablesConfig(base, null, null, null, null, null, null);
+    return new MetadataStorageTablesConfig(base, null, null, null, null, null, null, null, null);
   }
 
   public static final String TASK_ENTRY_TYPE = "task";
@@ -42,6 +42,9 @@ public class MetadataStorageTablesConfig
 
   @JsonProperty("base")
   private final String base;
+
+  @JsonProperty("pendingSegments")
+  private final String pendingSegmentsTable;
 
   @JsonProperty("segments")
   private final String segmentsTable;
@@ -61,18 +64,24 @@ public class MetadataStorageTablesConfig
   @JsonProperty("taskLock")
   private final String taskLockTable;
 
+  @JsonProperty("audit")
+  private final String auditTable;
+
   @JsonCreator
   public MetadataStorageTablesConfig(
       @JsonProperty("base") String base,
+      @JsonProperty("pendingSegments") String pendingSegmentsTable,
       @JsonProperty("segments") String segmentsTable,
       @JsonProperty("rules") String rulesTable,
       @JsonProperty("config") String configTable,
       @JsonProperty("tasks") String tasksTable,
       @JsonProperty("taskLog") String taskLogTable,
-      @JsonProperty("taskLock") String taskLockTable
+      @JsonProperty("taskLock") String taskLockTable,
+      @JsonProperty("audit") String auditTable
   )
   {
     this.base = (base == null) ? DEFAULT_BASE : base;
+    this.pendingSegmentsTable = makeTableName(pendingSegmentsTable, "pendingSegments");
     this.segmentsTable = makeTableName(segmentsTable, "segments");
     this.rulesTable = makeTableName(rulesTable, "rules");
     this.configTable = makeTableName(configTable, "config");
@@ -83,6 +92,7 @@ public class MetadataStorageTablesConfig
     entryTables.put(TASK_ENTRY_TYPE, this.tasksTable);
     logTables.put(TASK_ENTRY_TYPE, this.taskLogTable);
     lockTables.put(TASK_ENTRY_TYPE, this.taskLockTable);
+    this.auditTable = makeTableName(auditTable, "audit");
 
   }
 
@@ -101,6 +111,11 @@ public class MetadataStorageTablesConfig
   public String getBase()
   {
     return base;
+  }
+
+  public String getPendingSegmentsTable()
+  {
+    return pendingSegmentsTable;
   }
 
   public String getSegmentsTable()
@@ -137,4 +152,10 @@ public class MetadataStorageTablesConfig
   {
     return TASK_ENTRY_TYPE;
   }
+
+  public String getAuditTable()
+  {
+    return auditTable;
+  }
+
 }

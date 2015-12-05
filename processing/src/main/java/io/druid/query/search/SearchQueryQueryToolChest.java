@@ -20,10 +20,10 @@ package io.druid.query.search;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Ordering;
-import com.google.common.collect.Sets;
 import com.google.common.primitives.Ints;
 import com.google.inject.Inject;
 import com.metamx.common.IAE;
@@ -32,19 +32,19 @@ import com.metamx.common.guava.MergeSequence;
 import com.metamx.common.guava.Sequence;
 import com.metamx.common.guava.Sequences;
 import com.metamx.common.guava.nary.BinaryFn;
-import com.metamx.common.StringUtils;
 import com.metamx.emitter.service.ServiceMetricEvent;
 import io.druid.collections.OrderedMergeSequence;
 import io.druid.query.CacheStrategy;
-import io.druid.query.IntervalChunkingQueryRunner;
+import io.druid.query.DruidMetrics;
+import io.druid.query.IntervalChunkingQueryRunnerDecorator;
 import io.druid.query.Query;
-import io.druid.query.QueryMetricUtil;
 import io.druid.query.QueryRunner;
 import io.druid.query.QueryToolChest;
 import io.druid.query.Result;
 import io.druid.query.ResultGranularTimestampComparator;
 import io.druid.query.ResultMergeQueryRunner;
 import io.druid.query.aggregation.MetricManipulationFn;
+import io.druid.query.dimension.DimensionSpec;
 import io.druid.query.filter.DimFilter;
 import io.druid.query.search.search.SearchHit;
 import io.druid.query.search.search.SearchQuery;
@@ -53,9 +53,9 @@ import org.joda.time.DateTime;
 
 import javax.annotation.Nullable;
 import java.nio.ByteBuffer;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  */
@@ -71,12 +71,16 @@ public class SearchQueryQueryToolChest extends QueryToolChest<Result<SearchResul
 
   private final SearchQueryConfig config;
 
+  private final IntervalChunkingQueryRunnerDecorator intervalChunkingQueryRunnerDecorator;
+
   @Inject
   public SearchQueryQueryToolChest(
-      SearchQueryConfig config
+      SearchQueryConfig config,
+      IntervalChunkingQueryRunnerDecorator intervalChunkingQueryRunnerDecorator
   )
   {
     this.config = config;
+    this.intervalChunkingQueryRunnerDecorator = intervalChunkingQueryRunnerDecorator;
   }
 
   @Override
@@ -118,7 +122,7 @@ public class SearchQueryQueryToolChest extends QueryToolChest<Result<SearchResul
   @Override
   public ServiceMetricEvent.Builder makeMetricBuilder(SearchQuery query)
   {
-    return QueryMetricUtil.makeQueryTimeMetric(query);
+    return DruidMetrics.makePartialQueryTimeMetric(query);
   }
 
   @Override
@@ -148,16 +152,15 @@ public class SearchQueryQueryToolChest extends QueryToolChest<Result<SearchResul
         final byte[] querySpecBytes = query.getQuery().getCacheKey();
         final byte[] granularityBytes = query.getGranularity().cacheKey();
 
-        final Set<String> dimensions = Sets.newTreeSet();
-        if (query.getDimensions() != null) {
-          dimensions.addAll(query.getDimensions());
-        }
+        final Collection<DimensionSpec> dimensions = query.getDimensions() == null
+                                                     ? ImmutableList.<DimensionSpec>of()
+                                                     : query.getDimensions();
 
         final byte[][] dimensionsBytes = new byte[dimensions.size()][];
         int dimensionsBytesSize = 0;
         int index = 0;
-        for (String dimension : dimensions) {
-          dimensionsBytes[index] = StringUtils.toUtf8(dimension);
+        for (DimensionSpec dimension : dimensions) {
+          dimensionsBytes[index] = dimension.getCacheKey();
           dimensionsBytesSize += dimensionsBytes[index].length;
           ++index;
         }
@@ -210,8 +213,8 @@ public class SearchQueryQueryToolChest extends QueryToolChest<Result<SearchResul
           {
             List<Object> result = (List<Object>) input;
 
-            return new Result<SearchResultValue>(
-                new DateTime(result.get(0)),
+            return new Result<>(
+                new DateTime(((Number) result.get(0)).longValue()),
                 new SearchResultValue(
                     Lists.transform(
                         (List) result.get(1),
@@ -251,7 +254,7 @@ public class SearchQueryQueryToolChest extends QueryToolChest<Result<SearchResul
   public QueryRunner<Result<SearchResultValue>> preMergeQueryDecoration(QueryRunner<Result<SearchResultValue>> runner)
   {
     return new SearchThresholdAdjustingQueryRunner(
-        new IntervalChunkingQueryRunner<Result<SearchResultValue>>(runner, config.getChunkPeriod()),
+        intervalChunkingQueryRunnerDecorator.decorate(runner, this),
         config
     );
   }

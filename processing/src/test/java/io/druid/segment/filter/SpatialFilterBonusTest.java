@@ -28,7 +28,6 @@ import io.druid.data.input.impl.SpatialDimensionSchema;
 import io.druid.granularity.QueryGranularity;
 import io.druid.query.Druids;
 import io.druid.query.FinalizeResultsQueryRunner;
-import io.druid.query.QueryConfig;
 import io.druid.query.QueryRunner;
 import io.druid.query.QueryRunnerTestHelper;
 import io.druid.query.Result;
@@ -44,6 +43,7 @@ import io.druid.query.timeseries.TimeseriesResultValue;
 import io.druid.segment.IncrementalIndexSegment;
 import io.druid.segment.IndexIO;
 import io.druid.segment.IndexMerger;
+import io.druid.segment.IndexSpec;
 import io.druid.segment.QueryableIndex;
 import io.druid.segment.QueryableIndexSegment;
 import io.druid.segment.Segment;
@@ -77,6 +77,9 @@ public class SpatialFilterBonusTest
       new LongSumAggregatorFactory("val", "val")
   };
   private static List<String> DIMS = Lists.newArrayList("dim", "dim.geo");
+  private static final IndexMerger INDEX_MERGER = TestHelper.getTestIndexMerger();
+  private static final IndexIO INDEX_IO = TestHelper.getTestIndexIO();
+
   private final Segment segment;
 
   public SpatialFilterBonusTest(Segment segment)
@@ -87,9 +90,10 @@ public class SpatialFilterBonusTest
   @Parameterized.Parameters
   public static Collection<?> constructorFeeder() throws IOException
   {
+    final IndexSpec indexSpec = new IndexSpec();
     final IncrementalIndex rtIndex = makeIncrementalIndex();
-    final QueryableIndex mMappedTestIndex = makeQueryableIndex();
-    final QueryableIndex mergedRealtimeIndex = makeMergedQueryableIndex();
+    final QueryableIndex mMappedTestIndex = makeQueryableIndex(indexSpec);
+    final QueryableIndex mergedRealtimeIndex = makeMergedQueryableIndex(indexSpec);
     return Arrays.asList(
         new Object[][]{
             {
@@ -134,7 +138,7 @@ public class SpatialFilterBonusTest
                 "timestamp", new DateTime("2013-01-01").toString(),
                 "dim", "foo",
                 "dim.geo", "0.0,0.0",
-                "val", 17l
+                "val", 17L
             )
         )
     );
@@ -146,7 +150,7 @@ public class SpatialFilterBonusTest
                 "timestamp", new DateTime("2013-01-02").toString(),
                 "dim", "foo",
                 "dim.geo", "1.0,3.0",
-                "val", 29l
+                "val", 29L
             )
         )
     );
@@ -158,7 +162,7 @@ public class SpatialFilterBonusTest
                 "timestamp", new DateTime("2013-01-03").toString(),
                 "dim", "foo",
                 "dim.geo", "4.0,2.0",
-                "val", 13l
+                "val", 13L
             )
         )
     );
@@ -170,7 +174,7 @@ public class SpatialFilterBonusTest
                 "timestamp", new DateTime("2013-01-04").toString(),
                 "dim", "foo",
                 "dim.geo", "7.0,3.0",
-                "val", 91l
+                "val", 91L
             )
         )
     );
@@ -182,7 +186,7 @@ public class SpatialFilterBonusTest
                 "timestamp", new DateTime("2013-01-05").toString(),
                 "dim", "foo",
                 "dim.geo", "8.0,6.0",
-                "val", 47l
+                "val", 47L
             )
         )
     );
@@ -194,7 +198,7 @@ public class SpatialFilterBonusTest
                 "timestamp", new DateTime("2013-01-05").toString(),
                 "dim", "foo",
                 "dim.geo", "_mmx.unknown",
-                "val", 501l
+                "val", 501L
             )
         )
     );
@@ -223,7 +227,7 @@ public class SpatialFilterBonusTest
     return theIndex;
   }
 
-  private static QueryableIndex makeQueryableIndex() throws IOException
+  private static QueryableIndex makeQueryableIndex(IndexSpec indexSpec) throws IOException
   {
     IncrementalIndex theIndex = makeIncrementalIndex();
     File tmpFile = File.createTempFile("billy", "yay");
@@ -231,11 +235,11 @@ public class SpatialFilterBonusTest
     tmpFile.mkdirs();
     tmpFile.deleteOnExit();
 
-    IndexMerger.persist(theIndex, tmpFile);
-    return IndexIO.loadIndex(tmpFile);
+    INDEX_MERGER.persist(theIndex, tmpFile, null, indexSpec);
+    return INDEX_IO.loadIndex(tmpFile);
   }
 
-  private static QueryableIndex makeMergedQueryableIndex()
+  private static QueryableIndex makeMergedQueryableIndex(final IndexSpec indexSpec)
   {
     try {
       IncrementalIndex first = new OnheapIncrementalIndex(
@@ -307,7 +311,7 @@ public class SpatialFilterBonusTest
                   "timestamp", new DateTime("2013-01-01").toString(),
                   "dim", "foo",
                   "dim.geo", "0.0,0.0",
-                  "val", 17l
+                  "val", 17L
               )
           )
       );
@@ -319,7 +323,7 @@ public class SpatialFilterBonusTest
                   "timestamp", new DateTime("2013-01-02").toString(),
                   "dim", "foo",
                   "dim.geo", "1.0,3.0",
-                  "val", 29l
+                  "val", 29L
               )
           )
       );
@@ -331,7 +335,7 @@ public class SpatialFilterBonusTest
                   "timestamp", new DateTime("2013-01-03").toString(),
                   "dim", "foo",
                   "dim.geo", "4.0,2.0",
-                  "val", 13l
+                  "val", 13L
               )
           )
       );
@@ -343,7 +347,7 @@ public class SpatialFilterBonusTest
                   "timestamp", new DateTime("2013-01-05").toString(),
                   "dim", "foo",
                   "dim.geo", "_mmx.unknown",
-                  "val", 501l
+                  "val", 501L
               )
           )
       );
@@ -355,7 +359,7 @@ public class SpatialFilterBonusTest
                   "timestamp", new DateTime("2013-01-04").toString(),
                   "dim", "foo",
                   "dim.geo", "7.0,3.0",
-                  "val", 91l
+                  "val", 91L
               )
           )
       );
@@ -367,7 +371,7 @@ public class SpatialFilterBonusTest
                   "timestamp", new DateTime("2013-01-05").toString(),
                   "dim", "foo",
                   "dim.geo", "8.0,6.0",
-                  "val", 47l
+                  "val", 47L
               )
           )
       );
@@ -411,15 +415,20 @@ public class SpatialFilterBonusTest
       mergedFile.mkdirs();
       mergedFile.deleteOnExit();
 
-      IndexMerger.persist(first, DATA_INTERVAL, firstFile);
-      IndexMerger.persist(second, DATA_INTERVAL, secondFile);
-      IndexMerger.persist(third, DATA_INTERVAL, thirdFile);
+      INDEX_MERGER.persist(first, DATA_INTERVAL, firstFile, null, indexSpec);
+      INDEX_MERGER.persist(second, DATA_INTERVAL, secondFile, null, indexSpec);
+      INDEX_MERGER.persist(third, DATA_INTERVAL, thirdFile, null, indexSpec);
 
-      QueryableIndex mergedRealtime = IndexIO.loadIndex(
-          IndexMerger.mergeQueryableIndex(
-              Arrays.asList(IndexIO.loadIndex(firstFile), IndexIO.loadIndex(secondFile), IndexIO.loadIndex(thirdFile)),
+      QueryableIndex mergedRealtime = INDEX_IO.loadIndex(
+          INDEX_MERGER.mergeQueryableIndex(
+              Arrays.asList(
+                  INDEX_IO.loadIndex(firstFile),
+                  INDEX_IO.loadIndex(secondFile),
+                  INDEX_IO.loadIndex(thirdFile)
+              ),
               METRIC_AGGS,
-              mergedFile
+              mergedFile,
+              indexSpec
           )
       );
 
@@ -457,14 +466,15 @@ public class SpatialFilterBonusTest
             new TimeseriesResultValue(
                 ImmutableMap.<String, Object>builder()
                             .put("rows", 3L)
-                            .put("val", 59l)
+                            .put("val", 59L)
                             .build()
             )
         )
     );
     try {
       TimeseriesQueryRunnerFactory factory = new TimeseriesQueryRunnerFactory(
-          new TimeseriesQueryQueryToolChest(new QueryConfig()),
+          new TimeseriesQueryQueryToolChest(
+              QueryRunnerTestHelper.NoopIntervalChunkingQueryRunnerDecorator()),
           new TimeseriesQueryEngine(),
           QueryRunnerTestHelper.NOOP_QUERYWATCHER
       );
@@ -508,7 +518,7 @@ public class SpatialFilterBonusTest
             new TimeseriesResultValue(
                 ImmutableMap.<String, Object>builder()
                             .put("rows", 1L)
-                            .put("val", 17l)
+                            .put("val", 17L)
                             .build()
             )
         ),
@@ -517,7 +527,7 @@ public class SpatialFilterBonusTest
             new TimeseriesResultValue(
                 ImmutableMap.<String, Object>builder()
                             .put("rows", 1L)
-                            .put("val", 29l)
+                            .put("val", 29L)
                             .build()
             )
         ),
@@ -526,7 +536,7 @@ public class SpatialFilterBonusTest
             new TimeseriesResultValue(
                 ImmutableMap.<String, Object>builder()
                             .put("rows", 1L)
-                            .put("val", 13l)
+                            .put("val", 13L)
                             .build()
             )
         ),
@@ -535,7 +545,7 @@ public class SpatialFilterBonusTest
             new TimeseriesResultValue(
                 ImmutableMap.<String, Object>builder()
                             .put("rows", 1L)
-                            .put("val", 91l)
+                            .put("val", 91L)
                             .build()
             )
         ),
@@ -544,14 +554,15 @@ public class SpatialFilterBonusTest
             new TimeseriesResultValue(
                 ImmutableMap.<String, Object>builder()
                             .put("rows", 1L)
-                            .put("val", 47l)
+                            .put("val", 47L)
                             .build()
             )
         )
     );
     try {
       TimeseriesQueryRunnerFactory factory = new TimeseriesQueryRunnerFactory(
-          new TimeseriesQueryQueryToolChest(new QueryConfig()),
+          new TimeseriesQueryQueryToolChest(
+              QueryRunnerTestHelper.NoopIntervalChunkingQueryRunnerDecorator()),
           new TimeseriesQueryEngine(),
           QueryRunnerTestHelper.NOOP_QUERYWATCHER
       );

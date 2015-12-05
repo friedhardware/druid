@@ -139,8 +139,8 @@ public class TopNQuery extends BaseQuery<Result<TopNResultValue>>
 
   public void initTopNAlgorithmSelector(TopNAlgorithmSelector selector)
   {
-    if (dimensionSpec.getDimExtractionFn() != null) {
-      selector.setHasDimExtractionFn(true);
+    if (dimensionSpec.getExtractionFn() != null) {
+      selector.setHasExtractionFn(true);
     }
     topNMetricSpec.initTopNAlgorithmSelector(selector);
   }
@@ -153,6 +153,35 @@ public class TopNQuery extends BaseQuery<Result<TopNResultValue>>
         topNMetricSpec,
         threshold,
         querySegmentSpec,
+        dimFilter,
+        granularity,
+        aggregatorSpecs,
+        postAggregatorSpecs,
+        getContext()
+    );
+  }
+
+  public TopNQuery withDimensionSpec(DimensionSpec spec){
+    return new TopNQuery(
+        getDataSource(),
+        spec,
+        topNMetricSpec,
+        threshold,
+        getQuerySegmentSpec(),
+        dimFilter,
+        granularity,
+        aggregatorSpecs,
+        postAggregatorSpecs,
+        getContext()
+    );
+  }
+  public TopNQuery withPostAggregatorSpecs(List<PostAggregator> postAggregatorSpecs){
+    return new TopNQuery(
+        getDataSource(),
+        getDimensionSpec(),
+        topNMetricSpec,
+        threshold,
+        getQuerySegmentSpec(),
         dimFilter,
         granularity,
         aggregatorSpecs,

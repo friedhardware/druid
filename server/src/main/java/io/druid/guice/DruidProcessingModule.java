@@ -82,7 +82,7 @@ public class DruidProcessingModule implements Module
   @Processing
   @ManageLifecycle
   public ExecutorService getProcessingExecutorService(
-      ExecutorServiceConfig config,
+      DruidProcessingConfig config,
       ServiceEmitter emitter,
       Lifecycle lifecycle
   )
@@ -118,7 +118,8 @@ public class DruidProcessingModule implements Module
             )
         );
       }
-    } catch(UnsupportedOperationException e) {
+    }
+    catch (UnsupportedOperationException e) {
       log.info(e.getMessage());
     }
 

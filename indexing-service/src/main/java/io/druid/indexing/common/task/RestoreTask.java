@@ -32,6 +32,7 @@ import io.druid.timeline.DataSegment;
 import org.joda.time.Interval;
 
 import java.util.List;
+import java.util.Map;
 
 public class RestoreTask extends AbstractFixedIntervalTask
 {
@@ -40,13 +41,15 @@ public class RestoreTask extends AbstractFixedIntervalTask
   public RestoreTask(
       @JsonProperty("id") String id,
       @JsonProperty("dataSource") String dataSource,
-      @JsonProperty("interval") Interval interval
+      @JsonProperty("interval") Interval interval,
+      @JsonProperty("context") Map<String, Object> context
   )
   {
     super(
-        TaskUtils.makeId(id, "restore", dataSource, interval),
+        makeId(id, "restore", dataSource, interval),
         dataSource,
-        interval
+        interval,
+        context
     );
   }
 

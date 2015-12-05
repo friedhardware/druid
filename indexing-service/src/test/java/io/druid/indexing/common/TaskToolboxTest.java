@@ -24,17 +24,21 @@ import com.google.common.collect.ImmutableList;
 import com.metamx.emitter.service.ServiceEmitter;
 import com.metamx.metrics.MonitorScheduler;
 import io.druid.client.FilteredServerView;
+import io.druid.client.cache.Cache;
+import io.druid.client.cache.CacheConfig;
 import io.druid.indexing.common.actions.TaskActionClientFactory;
 import io.druid.indexing.common.config.TaskConfig;
 import io.druid.indexing.common.task.Task;
 import io.druid.query.QueryRunnerFactoryConglomerate;
+import io.druid.segment.IndexIO;
+import io.druid.segment.IndexMerger;
+import io.druid.segment.loading.DataSegmentArchiver;
 import io.druid.segment.loading.DataSegmentKiller;
 import io.druid.segment.loading.DataSegmentMover;
 import io.druid.segment.loading.DataSegmentPusher;
-import io.druid.segment.loading.OmniSegmentLoader;
-import io.druid.segment.loading.DataSegmentArchiver;
-import io.druid.segment.loading.SegmentLoadingException;
 import io.druid.segment.loading.SegmentLoaderConfig;
+import io.druid.segment.loading.SegmentLoaderLocalCacheManager;
+import io.druid.segment.loading.SegmentLoadingException;
 import io.druid.server.coordination.DataSegmentAnnouncer;
 import io.druid.timeline.DataSegment;
 import org.easymock.EasyMock;
@@ -68,8 +72,12 @@ public class TaskToolboxTest
   private MonitorScheduler mockMonitorScheduler = EasyMock.createMock(MonitorScheduler.class);
   private ExecutorService mockQueryExecutorService = EasyMock.createMock(ExecutorService.class);
   private ObjectMapper ObjectMapper = new ObjectMapper();
-  private OmniSegmentLoader mockOmniSegmentLoader = EasyMock.createMock(OmniSegmentLoader.class);
+  private SegmentLoaderLocalCacheManager mockSegmentLoaderLocalCacheManager = EasyMock.createMock(SegmentLoaderLocalCacheManager.class);
   private Task task = EasyMock.createMock(Task.class);
+  private IndexMerger mockIndexMerger = EasyMock.createMock(IndexMerger.class);
+  private IndexIO mockIndexIO = EasyMock.createMock(IndexIO.class);
+  private Cache mockCache = EasyMock.createMock(Cache.class);
+  private CacheConfig mockCacheConfig = EasyMock.createMock(CacheConfig.class);
 
   @Rule
   public TemporaryFolder temporaryFolder = new TemporaryFolder();
@@ -81,7 +89,7 @@ public class TaskToolboxTest
     EasyMock.replay(task);
 
     taskToolbox = new TaskToolboxFactory(
-        new TaskConfig(temporaryFolder.newFile().toString(), null, null, 50000, null),
+        new TaskConfig(temporaryFolder.newFile().toString(), null, null, 50000, null, null, null),
         mockTaskActionClientFactory,
         mockEmitter,
         mockSegmentPusher,
@@ -93,8 +101,12 @@ public class TaskToolboxTest
         mockQueryRunnerFactoryConglomerate,
         mockQueryExecutorService,
         mockMonitorScheduler,
-        new SegmentLoaderFactory(mockOmniSegmentLoader),
-        ObjectMapper
+        new SegmentLoaderFactory(mockSegmentLoaderLocalCacheManager),
+        ObjectMapper,
+        mockIndexMerger,
+        mockIndexIO,
+        mockCache,
+        mockCacheConfig
     );
   }
 
@@ -144,11 +156,11 @@ public class TaskToolboxTest
   public void testFetchSegments() throws SegmentLoadingException, IOException
   {
     File expectedFile = temporaryFolder.newFile();
-    EasyMock.expect(mockOmniSegmentLoader.getSegmentFiles((DataSegment)EasyMock.anyObject()))
+    EasyMock.expect(mockSegmentLoaderLocalCacheManager.getSegmentFiles((DataSegment)EasyMock.anyObject()))
         .andReturn(expectedFile).anyTimes();
-    EasyMock.expect(mockOmniSegmentLoader.withConfig((SegmentLoaderConfig)EasyMock.anyObject()))
-        .andReturn(mockOmniSegmentLoader).anyTimes();
-    EasyMock.replay(mockOmniSegmentLoader);
+    EasyMock.expect(mockSegmentLoaderLocalCacheManager.withConfig((SegmentLoaderConfig)EasyMock.anyObject()))
+        .andReturn(mockSegmentLoaderLocalCacheManager).anyTimes();
+    EasyMock.replay(mockSegmentLoaderLocalCacheManager);
     DataSegment dataSegment = DataSegment.builder().dataSource("source").interval(new Interval("2012-01-01/P1D")).version("1").size(1).build();
     List<DataSegment> segments = ImmutableList.of
         (
@@ -173,5 +185,17 @@ public class TaskToolboxTest
   public void testGetDataSegmentMover()
   {
     Assert.assertEquals(mockDataSegmentMover, taskToolbox.build(task).getDataSegmentMover());
+  }
+
+  @Test
+  public void testGetCache() throws Exception
+  {
+    Assert.assertEquals(mockCache, taskToolbox.build(task).getCache());
+  }
+
+  @Test
+  public void testGetCacheConfig() throws Exception
+  {
+    Assert.assertEquals(mockCacheConfig, taskToolbox.build(task).getCacheConfig());
   }
 }

@@ -25,7 +25,8 @@ import com.google.inject.Provides;
 import com.google.inject.name.Names;
 import com.metamx.common.concurrent.ScheduledExecutorFactory;
 import com.metamx.common.logger.Logger;
-import io.airlift.command.Command;
+import io.airlift.airline.Command;
+import io.druid.audit.AuditManager;
 import io.druid.client.indexing.IndexingServiceClient;
 import io.druid.guice.ConfigProvider;
 import io.druid.guice.Jerseys;
@@ -41,6 +42,7 @@ import io.druid.metadata.MetadataSegmentManagerConfig;
 import io.druid.metadata.MetadataSegmentManagerProvider;
 import io.druid.metadata.MetadataStorage;
 import io.druid.metadata.MetadataStorageProvider;
+import io.druid.server.audit.AuditManagerProvider;
 import io.druid.server.coordinator.DruidCoordinator;
 import io.druid.server.coordinator.DruidCoordinatorConfig;
 import io.druid.server.coordinator.LoadQueueTaskMaster;
@@ -48,13 +50,14 @@ import io.druid.server.http.CoordinatorDynamicConfigsResource;
 import io.druid.server.http.CoordinatorRedirectInfo;
 import io.druid.server.http.CoordinatorResource;
 import io.druid.server.http.DatasourcesResource;
+import io.druid.server.http.IntervalsResource;
 import io.druid.server.http.MetadataResource;
 import io.druid.server.http.RedirectFilter;
 import io.druid.server.http.RedirectInfo;
 import io.druid.server.http.RulesResource;
 import io.druid.server.http.ServersResource;
 import io.druid.server.http.TiersResource;
-import io.druid.server.initialization.JettyServerInitializer;
+import io.druid.server.initialization.jetty.JettyServerInitializer;
 import io.druid.server.router.TieredBrokerConfig;
 import org.apache.curator.framework.CuratorFramework;
 import org.eclipse.jetty.server.Server;
@@ -109,6 +112,10 @@ public class CliCoordinator extends ServerRunnable
                   .toProvider(MetadataRuleManagerProvider.class)
                   .in(ManageLifecycle.class);
 
+            binder.bind(AuditManager.class)
+                  .toProvider(AuditManagerProvider.class)
+                  .in(ManageLifecycle.class);
+
             binder.bind(IndexingServiceClient.class).in(LazySingleton.class);
 
             binder.bind(DruidCoordinator.class);
@@ -126,6 +133,7 @@ public class CliCoordinator extends ServerRunnable
             Jerseys.addResource(binder, ServersResource.class);
             Jerseys.addResource(binder, DatasourcesResource.class);
             Jerseys.addResource(binder, MetadataResource.class);
+            Jerseys.addResource(binder, IntervalsResource.class);
 
             LifecycleModule.register(binder, Server.class);
           }

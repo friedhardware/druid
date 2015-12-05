@@ -1,26 +1,31 @@
 /*
- * Druid - a distributed column store.
- * Copyright 2012 - 2015 Metamarkets Group Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+* Licensed to Metamarkets Group Inc. (Metamarkets) under one
+* or more contributor license agreements. See the NOTICE file
+* distributed with this work for additional information
+* regarding copyright ownership. Metamarkets licenses this file
+* to you under the Apache License, Version 2.0 (the
+* "License"); you may not use this file except in compliance
+* with the License. You may obtain a copy of the License at
+*
+* http://www.apache.org/licenses/LICENSE-2.0
+*
+* Unless required by applicable law or agreed to in writing,
+* software distributed under the License is distributed on an
+* "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+* KIND, either express or implied. See the License for the
+* specific language governing permissions and limitations
+* under the License.
+*/
 
 package io.druid.query;
 
 import com.google.common.base.Function;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.ListenableFuture;
+import com.metamx.common.UOE;
+import com.metamx.common.guava.Sequence;
 import io.druid.granularity.QueryGranularity;
 import io.druid.query.aggregation.AggregatorFactory;
 import io.druid.query.aggregation.CountAggregatorFactory;
@@ -46,9 +51,12 @@ import org.joda.time.Interval;
 
 import javax.annotation.Nullable;
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 /**
  */
@@ -149,7 +157,7 @@ public class QueryRunnerTestHelper
   public static ArithmeticPostAggregator hyperUniqueFinalizingPostAgg = new ArithmeticPostAggregator(
       hyperUniqueFinalizingPostAggMetric,
       "+",
-      Lists.newArrayList(new HyperUniqueFinalizingPostAggregator(uniqueMetric), new ConstantPostAggregator(null, 1))
+      Lists.newArrayList(new HyperUniqueFinalizingPostAggregator(uniqueMetric, uniqueMetric), new ConstantPostAggregator(null, 1))
   );
 
   public static final List<AggregatorFactory> commonAggregators = Arrays.asList(
@@ -199,9 +207,23 @@ public class QueryRunnerTestHelper
       Arrays.asList(new Interval("2020-04-02T00:00:00.000Z/P1D"))
   );
 
-  @SuppressWarnings("unchecked")
-  public static Collection<?> makeQueryRunners(
-      QueryRunnerFactory factory
+  public static Iterable<Object[]> transformToConstructionFeeder(Iterable<?> in)
+  {
+    return Iterables.transform(
+        in, new Function<Object, Object[]>()
+        {
+          @Nullable
+          @Override
+          public Object[] apply(@Nullable Object input)
+          {
+            return new Object[]{input};
+          }
+        }
+    );
+  }
+
+  public static <T, QueryType extends Query<T>> List<QueryRunner<T>> makeQueryRunners(
+      QueryRunnerFactory<T, QueryType> factory
   )
       throws IOException
   {
@@ -209,21 +231,11 @@ public class QueryRunnerTestHelper
     final QueryableIndex mMappedTestIndex = TestIndex.getMMappedTestIndex();
     final QueryableIndex mergedRealtimeIndex = TestIndex.mergedRealtimeIndex();
     final IncrementalIndex rtIndexOffheap = TestIndex.getIncrementalTestIndex(true);
-    return Arrays.asList(
-        new Object[][]{
-            {
-                makeQueryRunner(factory, new IncrementalIndexSegment(rtIndex, segmentId))
-            },
-            {
-                makeQueryRunner(factory, new QueryableIndexSegment(segmentId, mMappedTestIndex))
-            },
-            {
-                makeQueryRunner(factory, new QueryableIndexSegment(segmentId, mergedRealtimeIndex))
-            },
-            {
-                makeQueryRunner(factory, new IncrementalIndexSegment(rtIndexOffheap, segmentId))
-            }
-        }
+    return ImmutableList.of(
+        makeQueryRunner(factory, new IncrementalIndexSegment(rtIndex, segmentId)),
+        makeQueryRunner(factory, new QueryableIndexSegment(segmentId, mMappedTestIndex)),
+        makeQueryRunner(factory, new QueryableIndexSegment(segmentId, mergedRealtimeIndex)),
+        makeQueryRunner(factory, new IncrementalIndexSegment(rtIndexOffheap, segmentId))
     );
   }
 
@@ -242,27 +254,89 @@ public class QueryRunnerTestHelper
     return Arrays.asList(
         new Object[][]{
             {
-                makeUnionQueryRunner(factory, new IncrementalIndexSegment(rtIndex, segmentId), unionDataSource)
+                makeUnionQueryRunner(factory, new IncrementalIndexSegment(rtIndex, segmentId))
             },
             {
-                makeUnionQueryRunner(factory, new QueryableIndexSegment(segmentId, mMappedTestIndex), unionDataSource)
+                makeUnionQueryRunner(factory, new QueryableIndexSegment(segmentId, mMappedTestIndex))
             },
             {
                 makeUnionQueryRunner(
                     factory,
-                    new QueryableIndexSegment(segmentId, mergedRealtimeIndex),
-                    unionDataSource
+                    new QueryableIndexSegment(segmentId, mergedRealtimeIndex)
                 )
             },
             {
-                makeUnionQueryRunner(factory, new IncrementalIndexSegment(rtIndexOffheap, segmentId), unionDataSource)
+                makeUnionQueryRunner(factory, new IncrementalIndexSegment(rtIndexOffheap, segmentId))
             }
         }
     );
   }
+  /**
+   * Iterate through the iterables in a synchronous manner and return each step as an Object[]
+   * @param in The iterables to step through. (effectively columns)
+   * @return An iterable of Object[] containing the "rows" of the input (effectively rows)
+   */
+  public static Iterable<Object[]> transformToConstructionFeeder(Iterable<?>... in)
+  {
+    if (in == null) {
+      return ImmutableList.<Object[]>of();
+    }
+    final List<Iterable<?>> iterables = Arrays.asList(in);
+    final int length = in.length;
+    final List<Iterator<?>> iterators = new ArrayList<>(in.length);
+    for (Iterable<?> iterable : iterables) {
+      iterators.add(iterable.iterator());
+    }
+    return new Iterable<Object[]>()
+    {
+      @Override
+      public Iterator<Object[]> iterator()
+      {
+        return new Iterator<Object[]>()
+        {
+          @Override
+          public boolean hasNext()
+          {
+            int hasMore = 0;
+            for (Iterator<?> it : iterators) {
+              if (it.hasNext()) {
+                ++hasMore;
+              }
+            }
+            return hasMore == length;
+          }
 
-  public static <T> QueryRunner<T> makeQueryRunner(
-      QueryRunnerFactory<T, Query<T>> factory,
+          @Override
+          public Object[] next()
+          {
+            final ArrayList<Object> list = new ArrayList<Object>(length);
+            for (Iterator<?> it : iterators) {
+              list.add(it.next());
+            }
+            return list.toArray();
+          }
+
+          @Override
+          public void remove()
+          {
+            throw new UOE("Remove not supported");
+          }
+        };
+      }
+    };
+  }
+
+  public static <T, QueryType extends Query<T>> QueryRunner<T> makeQueryRunner(
+      QueryRunnerFactory<T, QueryType> factory,
+      Segment adapter
+  )
+  {
+    return makeQueryRunner(factory, segmentId, adapter);
+  }
+
+  public static <T, QueryType extends Query<T>> QueryRunner<T> makeQueryRunner(
+      QueryRunnerFactory<T, QueryType> factory,
+      String segmentId,
       Segment adapter
   )
   {
@@ -271,33 +345,22 @@ public class QueryRunnerTestHelper
             segmentId, adapter.getDataInterval().getStart(),
             factory.createRunner(adapter)
         ),
-        factory.getToolchest()
+        (QueryToolChest<T, Query<T>>)factory.getToolchest()
     );
   }
 
   public static <T> QueryRunner<T> makeUnionQueryRunner(
-      final QueryRunnerFactory<T, Query<T>> factory,
-      final Segment adapter,
-      final DataSource unionDataSource
+      QueryRunnerFactory<T, Query<T>> factory,
+      Segment adapter
   )
   {
     return new FinalizeResultsQueryRunner<T>(
         factory.getToolchest().postMergeQueryDecoration(
             factory.getToolchest().mergeResults(
                 new UnionQueryRunner<T>(
-                    Iterables.transform(
-                        unionDataSource.getNames(), new Function<String, QueryRunner>()
-                        {
-                          @Nullable
-                          @Override
-                          public QueryRunner apply(@Nullable String input)
-                          {
-                            return new BySegmentQueryRunner<T>(
-                                segmentId, adapter.getDataInterval().getStart(),
-                                factory.createRunner(adapter)
-                            );
-                          }
-                        }
+                    new BySegmentQueryRunner<T>(
+                        segmentId, adapter.getDataInterval().getStart(),
+                        factory.createRunner(adapter)
                     ),
                     factory.getToolchest()
                 )
@@ -305,5 +368,22 @@ public class QueryRunnerTestHelper
         ),
         factory.getToolchest()
     );
+  }
+
+  public static IntervalChunkingQueryRunnerDecorator NoopIntervalChunkingQueryRunnerDecorator()
+  {
+    return new IntervalChunkingQueryRunnerDecorator(null, null, null) {
+      @Override
+      public <T> QueryRunner<T> decorate(final QueryRunner<T> delegate,
+          QueryToolChest<T, ? extends Query<T>> toolChest) {
+        return new QueryRunner<T>() {
+          @Override
+          public Sequence<T> run(Query<T> query, Map<String, Object> responseContext)
+          {
+            return delegate.run(query, responseContext);
+          }
+        };
+      }
+    };
   }
 }

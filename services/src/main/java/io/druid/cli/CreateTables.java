@@ -23,13 +23,13 @@ import com.google.inject.Injector;
 import com.google.inject.Key;
 import com.google.inject.Module;
 import com.metamx.common.logger.Logger;
-import io.airlift.command.Command;
-import io.airlift.command.Option;
+import io.airlift.airline.Command;
+import io.airlift.airline.Option;
+import io.druid.guice.JsonConfigProvider;
+import io.druid.guice.annotations.Self;
 import io.druid.metadata.MetadataStorageConnector;
 import io.druid.metadata.MetadataStorageConnectorConfig;
 import io.druid.metadata.MetadataStorageTablesConfig;
-import io.druid.guice.JsonConfigProvider;
-import io.druid.guice.annotations.Self;
 import io.druid.server.DruidNode;
 
 import java.util.List;
@@ -106,9 +106,11 @@ public class CreateTables extends GuiceRunnable
   {
     final Injector injector = makeInjector();
     MetadataStorageConnector dbConnector = injector.getInstance(MetadataStorageConnector.class);
+    dbConnector.createPendingSegmentsTable();
     dbConnector.createSegmentTable();
     dbConnector.createRulesTable();
     dbConnector.createConfigTable();
     dbConnector.createTaskTables();
+    dbConnector.createAuditTable();
   }
 }

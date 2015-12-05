@@ -20,11 +20,13 @@ package io.druid.query.metadata;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Function;
 import com.google.common.base.Functions;
+import com.google.common.base.Predicate;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
-import com.metamx.common.ISE;
+import com.google.inject.Inject;
 import com.metamx.common.guava.MergeSequence;
 import com.metamx.common.guava.Sequence;
 import com.metamx.common.guava.nary.BinaryFn;
@@ -32,8 +34,8 @@ import com.metamx.emitter.service.ServiceMetricEvent;
 import io.druid.collections.OrderedMergeSequence;
 import io.druid.common.utils.JodaUtils;
 import io.druid.query.CacheStrategy;
+import io.druid.query.DruidMetrics;
 import io.druid.query.Query;
-import io.druid.query.QueryMetricUtil;
 import io.druid.query.QueryRunner;
 import io.druid.query.QueryToolChest;
 import io.druid.query.ResultMergeQueryRunner;
@@ -41,6 +43,8 @@ import io.druid.query.aggregation.MetricManipulationFn;
 import io.druid.query.metadata.metadata.ColumnAnalysis;
 import io.druid.query.metadata.metadata.SegmentAnalysis;
 import io.druid.query.metadata.metadata.SegmentMetadataQuery;
+import io.druid.timeline.LogicalSegment;
+import org.joda.time.DateTime;
 import org.joda.time.Interval;
 
 import javax.annotation.Nullable;
@@ -55,6 +59,16 @@ public class SegmentMetadataQueryQueryToolChest extends QueryToolChest<SegmentAn
   {
   };
   private static final byte[] SEGMENT_METADATA_CACHE_PREFIX = new byte[]{0x4};
+
+  private final SegmentMetadataQueryConfig config;
+
+  @Inject
+  public SegmentMetadataQueryQueryToolChest(
+      SegmentMetadataQueryConfig config
+  )
+  {
+    this.config = config;
+  }
 
   @Override
   public QueryRunner<SegmentAnalysis> mergeResults(final QueryRunner<SegmentAnalysis> runner)
@@ -99,10 +113,6 @@ public class SegmentMetadataQueryQueryToolChest extends QueryToolChest<SegmentAn
               return arg1;
             }
 
-            if (!query.isMerge()) {
-              throw new ISE("Merging when a merge isn't supposed to happen[%s], [%s]", arg1, arg2);
-            }
-
             List<Interval> newIntervals = JodaUtils.condenseIntervals(
                 Iterables.concat(arg1.getIntervals(), arg2.getIntervals())
             );
@@ -144,7 +154,7 @@ public class SegmentMetadataQueryQueryToolChest extends QueryToolChest<SegmentAn
   @Override
   public ServiceMetricEvent.Builder makeMetricBuilder(SegmentMetadataQuery query)
   {
-    return QueryMetricUtil.makeQueryTimeMetric(query);
+    return DruidMetrics.makePartialQueryTimeMetric(query);
   }
 
   @Override
@@ -170,9 +180,11 @@ public class SegmentMetadataQueryQueryToolChest extends QueryToolChest<SegmentAn
       public byte[] computeCacheKey(SegmentMetadataQuery query)
       {
         byte[] includerBytes = query.getToInclude().getCacheKey();
-        return ByteBuffer.allocate(1 + includerBytes.length)
+        byte[] analysisTypesBytes = query.getAnalysisTypesCacheKey();
+        return ByteBuffer.allocate(1 + includerBytes.length + analysisTypesBytes.length)
                          .put(SEGMENT_METADATA_CACHE_PREFIX)
                          .put(includerBytes)
+                         .put(analysisTypesBytes)
                          .array();
       }
 
@@ -214,6 +226,37 @@ public class SegmentMetadataQueryQueryToolChest extends QueryToolChest<SegmentAn
         return new MergeSequence<SegmentAnalysis>(getOrdering(), seqOfSequences);
       }
     };
+  }
+
+  @Override
+  public <T extends LogicalSegment> List<T> filterSegments(SegmentMetadataQuery query, List<T> segments)
+  {
+    if (!query.isUsingDefaultInterval()) {
+      return segments;
+    }
+
+    if (segments.size() <= 1) {
+      return segments;
+    }
+
+    final T max = segments.get(segments.size() - 1);
+
+    DateTime targetEnd = max.getInterval().getEnd();
+    final Interval targetInterval = new Interval(config.getDefaultHistory(), targetEnd);
+
+    return Lists.newArrayList(
+        Iterables.filter(
+            segments,
+            new Predicate<T>()
+            {
+              @Override
+              public boolean apply(T input)
+              {
+                return (input.getInterval().overlaps(targetInterval));
+              }
+            }
+        )
+    );
   }
 
   private Ordering<SegmentAnalysis> getOrdering()

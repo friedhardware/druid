@@ -23,11 +23,11 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
 import com.google.inject.Inject;
+import com.metamx.common.CompressionUtils;
 import com.metamx.emitter.EmittingLogger;
 import io.druid.segment.SegmentUtils;
 import io.druid.segment.loading.DataSegmentPusher;
 import io.druid.timeline.DataSegment;
-import io.druid.utils.CompressionUtils;
 import org.jets3t.service.ServiceException;
 import org.jets3t.service.acl.gs.GSAccessControlList;
 import org.jets3t.service.impl.rest.httpclient.RestS3Service;
@@ -55,6 +55,8 @@ public class S3DataSegmentPusher implements DataSegmentPusher
     this.s3Client = s3Client;
     this.config = config;
     this.jsonMapper = jsonMapper;
+
+    log.info("Configured S3 as deep storage");
   }
 
   @Override
@@ -66,8 +68,10 @@ public class S3DataSegmentPusher implements DataSegmentPusher
   @Override
   public DataSegment push(final File indexFilesDir, final DataSegment inSegment) throws IOException
   {
-    log.info("Uploading [%s] to S3", indexFilesDir);
     final String s3Path = S3Utils.constructSegmentPath(config.getBaseKey(), inSegment);
+
+    log.info("Copying segment[%s] to S3 at location[%s]", inSegment.getIdentifier(), s3Path);
+
     final File zipOutFile = File.createTempFile("druid", "index.zip");
     final long indexSize = CompressionUtils.zip(indexFilesDir, zipOutFile);
 

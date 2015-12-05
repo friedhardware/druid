@@ -19,6 +19,7 @@ package io.druid.indexing.common;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Function;
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -26,12 +27,16 @@ import com.google.common.collect.Multimaps;
 import com.metamx.emitter.service.ServiceEmitter;
 import com.metamx.metrics.MonitorScheduler;
 import io.druid.client.FilteredServerView;
+import io.druid.client.cache.Cache;
+import io.druid.client.cache.CacheConfig;
 import io.druid.indexing.common.actions.SegmentInsertAction;
 import io.druid.indexing.common.actions.TaskActionClient;
 import io.druid.indexing.common.actions.TaskActionClientFactory;
 import io.druid.indexing.common.config.TaskConfig;
 import io.druid.indexing.common.task.Task;
 import io.druid.query.QueryRunnerFactoryConglomerate;
+import io.druid.segment.IndexIO;
+import io.druid.segment.IndexMerger;
 import io.druid.segment.loading.DataSegmentArchiver;
 import io.druid.segment.loading.DataSegmentKiller;
 import io.druid.segment.loading.DataSegmentMover;
@@ -70,6 +75,11 @@ public class TaskToolbox
   private final SegmentLoader segmentLoader;
   private final ObjectMapper objectMapper;
   private final File taskWorkDir;
+  private final IndexMerger indexMerger;
+  private final IndexIO indexIO;
+  private final Cache cache;
+  private final CacheConfig cacheConfig;
+
 
   public TaskToolbox(
       TaskConfig config,
@@ -87,7 +97,11 @@ public class TaskToolbox
       MonitorScheduler monitorScheduler,
       SegmentLoader segmentLoader,
       ObjectMapper objectMapper,
-      final File taskWorkDir
+      File taskWorkDir,
+      IndexMerger indexMerger,
+      IndexIO indexIO,
+      Cache cache,
+      CacheConfig cacheConfig
   )
   {
     this.config = config;
@@ -106,6 +120,10 @@ public class TaskToolbox
     this.segmentLoader = segmentLoader;
     this.objectMapper = objectMapper;
     this.taskWorkDir = taskWorkDir;
+    this.indexMerger = Preconditions.checkNotNull(indexMerger, "Null IndexMerger");
+    this.indexIO = Preconditions.checkNotNull(indexIO, "Null IndexIO");
+    this.cache = cache;
+    this.cacheConfig = cacheConfig;
   }
 
   public TaskConfig getConfig()
@@ -207,5 +225,25 @@ public class TaskToolbox
   public File getTaskWorkDir()
   {
     return taskWorkDir;
+  }
+
+  public IndexIO getIndexIO()
+  {
+    return indexIO;
+  }
+
+  public IndexMerger getIndexMerger()
+  {
+    return indexMerger;
+  }
+
+  public Cache getCache()
+  {
+    return cache;
+  }
+
+  public CacheConfig getCacheConfig()
+  {
+    return cacheConfig;
   }
 }

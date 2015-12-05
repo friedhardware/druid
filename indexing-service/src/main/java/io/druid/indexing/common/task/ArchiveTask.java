@@ -20,7 +20,6 @@ package io.druid.indexing.common.task;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Iterables;
-import com.google.common.collect.Lists;
 import com.metamx.common.ISE;
 import com.metamx.common.logger.Logger;
 import io.druid.indexing.common.TaskLock;
@@ -32,6 +31,7 @@ import io.druid.timeline.DataSegment;
 import org.joda.time.Interval;
 
 import java.util.List;
+import java.util.Map;
 
 public class ArchiveTask extends AbstractFixedIntervalTask
 {
@@ -40,13 +40,15 @@ public class ArchiveTask extends AbstractFixedIntervalTask
   public ArchiveTask(
       @JsonProperty("id") String id,
       @JsonProperty("dataSource") String dataSource,
-      @JsonProperty("interval") Interval interval
+      @JsonProperty("interval") Interval interval,
+      @JsonProperty("context") Map<String, Object> context
   )
   {
     super(
-        TaskUtils.makeId(id, "archive", dataSource, interval),
+        makeId(id, "archive", dataSource, interval),
         dataSource,
-        interval
+        interval,
+        context
     );
   }
 
@@ -89,19 +91,11 @@ public class ArchiveTask extends AbstractFixedIntervalTask
       log.info("OK to archive segment: %s", unusedSegment.getIdentifier());
     }
 
-    List<DataSegment> archivedSegments = Lists.newLinkedList();
-
     // Move segments
     for (DataSegment segment : unusedSegments) {
-      archivedSegments.add(toolbox.getDataSegmentArchiver().archive(segment));
+      final DataSegment archivedSegment = toolbox.getDataSegmentArchiver().archive(segment);
+      toolbox.getTaskActionClient().submit(new SegmentMetadataUpdateAction(ImmutableSet.of(archivedSegment)));
     }
-
-    // Update metadata for moved segments
-    toolbox.getTaskActionClient().submit(
-        new SegmentMetadataUpdateAction(
-            ImmutableSet.copyOf(archivedSegments)
-        )
-    );
 
     return TaskStatus.success(getId());
   }

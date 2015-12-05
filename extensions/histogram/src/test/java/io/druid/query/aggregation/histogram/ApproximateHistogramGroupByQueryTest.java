@@ -48,7 +48,6 @@ import javax.annotation.Nullable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.List;
 
 /**
@@ -60,7 +59,7 @@ public class ApproximateHistogramGroupByQueryTest
   private GroupByQueryRunnerFactory factory;
 
   @Parameterized.Parameters
-  public static Collection<?> constructorFeeder() throws IOException
+  public static Iterable<Object[]> constructorFeeder() throws IOException
   {
     final ObjectMapper mapper = new DefaultObjectMapper();
     final StupidPool<ByteBuffer> pool = new StupidPool<ByteBuffer>(
@@ -84,7 +83,10 @@ public class ApproximateHistogramGroupByQueryTest
         engine,
         QueryRunnerTestHelper.NOOP_QUERYWATCHER,
         configSupplier,
-        new GroupByQueryQueryToolChest(configSupplier, mapper, engine, pool),
+        new GroupByQueryQueryToolChest(
+            configSupplier, mapper, engine, pool,
+            QueryRunnerTestHelper.NoopIntervalChunkingQueryRunnerDecorator()
+        ),
         pool
     );
 
@@ -105,17 +107,20 @@ public class ApproximateHistogramGroupByQueryTest
         singleThreadEngine,
         QueryRunnerTestHelper.NOOP_QUERYWATCHER,
         singleThreadedConfigSupplier,
-        new GroupByQueryQueryToolChest(singleThreadedConfigSupplier, mapper, singleThreadEngine, pool),
+        new GroupByQueryQueryToolChest(
+            singleThreadedConfigSupplier, mapper, singleThreadEngine, pool,
+            QueryRunnerTestHelper.NoopIntervalChunkingQueryRunnerDecorator()
+        ),
         pool
     );
 
 
-    Function<Object, Object> function = new Function<Object, Object>()
+    final Function<Object, Object[]> function = new Function<Object, Object[]>()
     {
       @Override
-      public Object apply(@Nullable Object input)
+      public Object[] apply(@Nullable Object input)
       {
-        return new Object[]{factory, ((Object[]) input)[0]};
+        return new Object[]{factory, input};
       }
     };
 
@@ -206,6 +211,66 @@ public class ApproximateHistogramGroupByQueryTest
                     0.0, 67.53287506103516, 72.22068786621094, 31.984678268432617, 14.261756896972656
                 }
             )
+        )
+    );
+
+    Iterable<Row> results = GroupByQueryRunnerTestHelper.runQuery(factory, runner, query);
+    TestHelper.assertExpectedObjects(expectedResults, results, "approx-histo");
+  }
+
+  @Test(expected = IllegalArgumentException.class)
+  public void testGroupByWithSameNameComplexPostAgg()
+  {
+    ApproximateHistogramAggregatorFactory aggFactory = new ApproximateHistogramAggregatorFactory(
+        "quantile",
+        "index",
+        10,
+        5,
+        Float.NEGATIVE_INFINITY,
+        Float.POSITIVE_INFINITY
+    );
+
+    GroupByQuery query = new GroupByQuery.Builder()
+        .setDataSource(QueryRunnerTestHelper.dataSource)
+        .setGranularity(QueryRunnerTestHelper.allGran)
+        .setDimensions(
+            Arrays.<DimensionSpec>asList(
+                new DefaultDimensionSpec(
+                    QueryRunnerTestHelper.marketDimension,
+                    "marketalias"
+                )
+            )
+        )
+        .setInterval(QueryRunnerTestHelper.fullOnInterval)
+        .setLimitSpec(
+            new DefaultLimitSpec(
+                Lists.newArrayList(
+                    new OrderByColumnSpec(
+                        "marketalias",
+                        OrderByColumnSpec.Direction.DESCENDING
+                    )
+                ), 1
+            )
+        )
+        .setAggregatorSpecs(
+            Lists.newArrayList(
+                QueryRunnerTestHelper.rowsCount,
+                aggFactory
+            )
+        )
+        .setPostAggregatorSpecs(
+            Arrays.<PostAggregator>asList(
+                new QuantilePostAggregator("quantile", "quantile", 0.5f)
+            )
+        )
+        .build();
+
+    List<Row> expectedResults = Arrays.asList(
+        GroupByQueryRunnerTestHelper.createExpectedRow(
+            "1970-01-01T00:00:00.000Z",
+            "marketalias", "upfront",
+            "rows", 186L,
+            "quantile", 880.9881f
         )
     );
 

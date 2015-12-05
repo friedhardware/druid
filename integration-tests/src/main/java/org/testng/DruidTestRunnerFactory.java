@@ -17,8 +17,8 @@
 
 package org.testng;
 
-import com.google.api.client.repackaged.com.google.common.base.Throwables;
-import com.google.api.client.util.Charsets;
+import com.google.common.base.Charsets;
+import com.google.common.base.Throwables;
 import com.google.inject.Injector;
 import com.google.inject.Key;
 import com.metamx.common.lifecycle.Lifecycle;
@@ -90,7 +90,11 @@ public class DruidTestRunnerFactory implements ITestRunnerFactory
       ;
       waitUntilInstanceReady(client, config.getCoordinatorHost());
       waitUntilInstanceReady(client, config.getIndexerHost());
-      waitUntilInstanceReady(client, config.getRouterHost());
+      waitUntilInstanceReady(client, config.getBrokerHost());
+      String routerHost = config.getRouterHost();
+      if (null != routerHost) {
+	  waitUntilInstanceReady(client, config.getRouterHost());
+      }
       Lifecycle lifecycle = injector.getInstance(Lifecycle.class);
       try {
         lifecycle.start();

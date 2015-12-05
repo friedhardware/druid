@@ -18,15 +18,20 @@
 package io.druid.indexing.common;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Preconditions;
 import com.google.inject.Inject;
 import com.metamx.emitter.service.ServiceEmitter;
 import com.metamx.metrics.MonitorScheduler;
 import io.druid.client.FilteredServerView;
+import io.druid.client.cache.Cache;
+import io.druid.client.cache.CacheConfig;
 import io.druid.guice.annotations.Processing;
 import io.druid.indexing.common.actions.TaskActionClientFactory;
 import io.druid.indexing.common.config.TaskConfig;
 import io.druid.indexing.common.task.Task;
 import io.druid.query.QueryRunnerFactoryConglomerate;
+import io.druid.segment.IndexIO;
+import io.druid.segment.IndexMerger;
 import io.druid.segment.loading.DataSegmentArchiver;
 import io.druid.segment.loading.DataSegmentKiller;
 import io.druid.segment.loading.DataSegmentMover;
@@ -55,6 +60,10 @@ public class TaskToolboxFactory
   private final MonitorScheduler monitorScheduler;
   private final SegmentLoaderFactory segmentLoaderFactory;
   private final ObjectMapper objectMapper;
+  private final IndexMerger indexMerger;
+  private final IndexIO indexIO;
+  private final Cache cache;
+  private final CacheConfig cacheConfig;
 
   @Inject
   public TaskToolboxFactory(
@@ -71,7 +80,11 @@ public class TaskToolboxFactory
       @Processing ExecutorService queryExecutorService,
       MonitorScheduler monitorScheduler,
       SegmentLoaderFactory segmentLoaderFactory,
-      ObjectMapper objectMapper
+      ObjectMapper objectMapper,
+      IndexMerger indexMerger,
+      IndexIO indexIO,
+      Cache cache,
+      CacheConfig cacheConfig
   )
   {
     this.config = config;
@@ -88,11 +101,15 @@ public class TaskToolboxFactory
     this.monitorScheduler = monitorScheduler;
     this.segmentLoaderFactory = segmentLoaderFactory;
     this.objectMapper = objectMapper;
+    this.indexMerger = Preconditions.checkNotNull(indexMerger, "Null IndexMerger");
+    this.indexIO = Preconditions.checkNotNull(indexIO, "Null IndexIO");
+    this.cache = cache;
+    this.cacheConfig = cacheConfig;
   }
 
   public TaskToolbox build(Task task)
   {
-    final File taskWorkDir = new File(new File(config.getBaseTaskDir(), task.getId()), "work");
+    final File taskWorkDir = config.getTaskWorkDir(task.getId());
 
     return new TaskToolbox(
         config,
@@ -110,7 +127,11 @@ public class TaskToolboxFactory
         monitorScheduler,
         segmentLoaderFactory.manufacturate(taskWorkDir),
         objectMapper,
-        taskWorkDir
+        taskWorkDir,
+        indexMerger,
+        indexIO,
+        cache,
+        cacheConfig
     );
   }
 }

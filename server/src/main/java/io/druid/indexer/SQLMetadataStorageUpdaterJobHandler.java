@@ -18,7 +18,9 @@
 package io.druid.indexer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
+import com.metamx.common.logger.Logger;
 import io.druid.metadata.SQLMetadataConnector;
 import io.druid.timeline.DataSegment;
 import io.druid.timeline.partition.NoneShardSpec;
@@ -27,8 +29,6 @@ import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.IDBI;
 import org.skife.jdbi.v2.PreparedBatch;
 import org.skife.jdbi.v2.tweak.HandleCallback;
-import com.metamx.common.logger.Logger;
-import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 
@@ -67,10 +67,10 @@ public class SQLMetadataStorageUpdaterJobHandler implements MetadataStorageUpdat
                       .put("created_date", new DateTime().toString())
                       .put("start", segment.getInterval().getStart().toString())
                       .put("end", segment.getInterval().getEnd().toString())
-                      .put("partitioned", (segment.getShardSpec() instanceof NoneShardSpec) ? 0 : 1)
+                      .put("partitioned", (segment.getShardSpec() instanceof NoneShardSpec) ? false : true)
                       .put("version", segment.getVersion())
                       .put("used", true)
-                      .put("payload", mapper.writeValueAsString(segment))
+                      .put("payload", mapper.writeValueAsBytes(segment))
                       .build()
               );
 

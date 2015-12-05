@@ -25,18 +25,17 @@ import com.metamx.common.guava.Accumulator;
 import io.druid.collections.StupidPool;
 import io.druid.data.input.MapBasedInputRow;
 import io.druid.data.input.MapBasedRow;
-import io.druid.data.input.Row;
-import io.druid.data.input.Rows;
 import io.druid.granularity.QueryGranularity;
 import io.druid.query.aggregation.AggregatorFactory;
 import io.druid.query.dimension.DimensionSpec;
 import io.druid.segment.incremental.IncrementalIndex;
 import io.druid.segment.incremental.IndexSizeExceededException;
-import io.druid.segment.incremental.OffheapIncrementalIndex;
 import io.druid.segment.incremental.OnheapIncrementalIndex;
 
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Queue;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class GroupByQueryHelper
 {
@@ -76,29 +75,15 @@ public class GroupByQueryHelper
           }
         }
     );
-    final IncrementalIndex index;
-    if (query.getContextValue("useOffheap", false)) {
-      index = new OffheapIncrementalIndex(
-          // use granularity truncated min timestamp
-          // since incoming truncated timestamps may precede timeStart
-          granTimeStart,
-          gran,
-          aggs.toArray(new AggregatorFactory[aggs.size()]),
-          bufferPool,
-          false,
-          Integer.MAX_VALUE
-      );
-    } else {
-      index = new OnheapIncrementalIndex(
-          // use granularity truncated min timestamp
-          // since incoming truncated timestamps may precede timeStart
-          granTimeStart,
-          gran,
-          aggs.toArray(new AggregatorFactory[aggs.size()]),
-          false,
-          config.getMaxResults()
-      );
-    }
+    final IncrementalIndex index = new OnheapIncrementalIndex(
+        // use granularity truncated min timestamp
+        // since incoming truncated timestamps may precede timeStart
+        granTimeStart,
+        gran,
+        aggs.toArray(new AggregatorFactory[aggs.size()]),
+        false,
+        config.getMaxResults()
+    );
 
     Accumulator<IncrementalIndex, T> accumulator = new Accumulator<IncrementalIndex, T>()
     {
@@ -130,15 +115,19 @@ public class GroupByQueryHelper
     return new Pair<>(index, accumulator);
   }
 
-  public static <T> Pair<List, Accumulator<List, T>> createBySegmentAccumulatorPair()
+  public static <T> Pair<Queue, Accumulator<Queue, T>> createBySegmentAccumulatorPair()
   {
-    List init = Lists.newArrayList();
-    Accumulator<List, T> accumulator = new Accumulator<List, T>()
+    // In parallel query runner multiple threads add to this queue concurrently
+    Queue init = new ConcurrentLinkedQueue<>();
+    Accumulator<Queue, T> accumulator = new Accumulator<Queue, T>()
     {
       @Override
-      public List accumulate(List accumulated, T in)
+      public Queue accumulate(Queue accumulated, T in)
       {
-        accumulated.add(in);
+        if (in == null) {
+          throw new ISE("Cannot have null result");
+        }
+        accumulated.offer(in);
         return accumulated;
       }
     };

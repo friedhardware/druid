@@ -16,9 +16,9 @@
  */
 package io.druid.metadata;
 
-import com.google.common.base.Suppliers;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.Rule;
 import org.junit.Test;
 import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.tweak.HandleCallback;
@@ -28,15 +28,16 @@ import java.util.LinkedList;
 
 public class SQLMetadataConnectorTest
 {
+  @Rule
+  public final TestDerbyConnector.DerbyConnectorRule derbyConnectorRule = new TestDerbyConnector.DerbyConnectorRule();
+
   private TestDerbyConnector connector;
-  private MetadataStorageTablesConfig tablesConfig = MetadataStorageTablesConfig.fromBase("test");
+  private MetadataStorageTablesConfig tablesConfig;
 
   @Before
   public void setUp() throws Exception {
-    connector = new TestDerbyConnector(
-        Suppliers.ofInstance(new MetadataStorageConnectorConfig()),
-        Suppliers.ofInstance(tablesConfig)
-    );
+    connector = derbyConnectorRule.getConnector();
+    tablesConfig = derbyConnectorRule.metadataTablesConfigSupplier().get();
   }
 
   @Test
@@ -50,11 +51,13 @@ public class SQLMetadataConnectorTest
     tables.add(tablesConfig.getLockTable(entryType));
     tables.add(tablesConfig.getLogTable(entryType));
     tables.add(tablesConfig.getEntryTable(entryType));
+    tables.add(tablesConfig.getAuditTable());
 
     connector.createSegmentTable();
     connector.createConfigTable();
     connector.createRulesTable();
     connector.createTaskTables();
+    connector.createAuditTable();
 
     connector.getDBI().withHandle(
         new HandleCallback<Void>()
@@ -83,7 +86,7 @@ public class SQLMetadataConnectorTest
   public void testInsertOrUpdate() throws Exception
   {
     final String tableName = "test";
-    connector.createConfigTable(connector.getDBI(), tableName);
+    connector.createConfigTable(tableName);
 
     Assert.assertNull(connector.lookup(tableName, "name", "payload", "emperor"));
 

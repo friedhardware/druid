@@ -18,6 +18,7 @@
 
 package io.druid.metadata;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Supplier;
@@ -25,12 +26,17 @@ import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.ListenableFuture;
+import com.google.common.util.concurrent.ListeningScheduledExecutorService;
+import com.google.common.util.concurrent.MoreExecutors;
 import com.google.inject.Inject;
 import com.metamx.common.Pair;
-import com.metamx.common.concurrent.ScheduledExecutors;
 import com.metamx.common.lifecycle.LifecycleStart;
 import com.metamx.common.lifecycle.LifecycleStop;
-import com.metamx.common.logger.Logger;
+import com.metamx.emitter.EmittingLogger;
+import io.druid.audit.AuditEntry;
+import io.druid.audit.AuditInfo;
+import io.druid.audit.AuditManager;
 import io.druid.client.DruidServer;
 import io.druid.concurrent.Execs;
 import io.druid.guice.ManageLifecycle;
@@ -38,12 +44,13 @@ import io.druid.guice.annotations.Json;
 import io.druid.server.coordinator.rules.ForeverLoadRule;
 import io.druid.server.coordinator.rules.Rule;
 import org.joda.time.DateTime;
-import org.joda.time.Duration;
 import org.skife.jdbi.v2.FoldController;
 import org.skife.jdbi.v2.Folder3;
 import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.IDBI;
 import org.skife.jdbi.v2.StatementContext;
+import org.skife.jdbi.v2.TransactionCallback;
+import org.skife.jdbi.v2.TransactionStatus;
 import org.skife.jdbi.v2.tweak.HandleCallback;
 import org.skife.jdbi.v2.tweak.ResultSetMapper;
 
@@ -53,7 +60,7 @@ import java.sql.SQLException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -61,6 +68,8 @@ import java.util.concurrent.atomic.AtomicReference;
 @ManageLifecycle
 public class SQLMetadataRuleManager implements MetadataRuleManager
 {
+
+
   public static void createDefaultRule(
       final IDBI dbi,
       final String ruleTable,
@@ -120,32 +129,38 @@ public class SQLMetadataRuleManager implements MetadataRuleManager
     }
   }
 
-  private static final Logger log = new Logger(SQLMetadataRuleManager.class);
+  private static final EmittingLogger log = new EmittingLogger(SQLMetadataRuleManager.class);
 
   private final ObjectMapper jsonMapper;
   private final Supplier<MetadataRuleManagerConfig> config;
   private final Supplier<MetadataStorageTablesConfig> dbTables;
   private final IDBI dbi;
   private final AtomicReference<ImmutableMap<String, List<Rule>>> rules;
-
-  private volatile ScheduledExecutorService exec;
+  private final AuditManager auditManager;
 
   private final Object lock = new Object();
 
   private volatile boolean started = false;
+
+  private volatile ListeningScheduledExecutorService exec = null;
+  private volatile ListenableFuture<?> future = null;
+
+  private volatile long retryStartTime = 0;
 
   @Inject
   public SQLMetadataRuleManager(
       @Json ObjectMapper jsonMapper,
       Supplier<MetadataRuleManagerConfig> config,
       Supplier<MetadataStorageTablesConfig> dbTables,
-      SQLMetadataConnector connector
+      SQLMetadataConnector connector,
+      AuditManager auditManager
   )
   {
     this.jsonMapper = jsonMapper;
     this.config = config;
     this.dbTables = dbTables;
     this.dbi = connector.getDBI();
+    this.auditManager = auditManager;
 
     this.rules = new AtomicReference<>(
         ImmutableMap.<String, List<Rule>>of()
@@ -160,21 +175,26 @@ public class SQLMetadataRuleManager implements MetadataRuleManager
         return;
       }
 
-      this.exec = Execs.scheduledSingleThreaded("DatabaseRuleManager-Exec--%d");
+      exec = MoreExecutors.listeningDecorator(Execs.scheduledSingleThreaded("DatabaseRuleManager-Exec--%d"));
 
       createDefaultRule(dbi, getRulesTable(), config.get().getDefaultRule(), jsonMapper);
-      ScheduledExecutors.scheduleWithFixedDelay(
-          exec,
-          new Duration(0),
-          config.get().getPollDuration().toStandardDuration(),
+      future = exec.scheduleWithFixedDelay(
           new Runnable()
           {
             @Override
             public void run()
             {
-              poll();
+              try {
+                poll();
+              }
+              catch (Exception e) {
+                log.error(e, "uncaught exception in rule manager polling thread");
+              }
             }
-          }
+          },
+          0,
+          config.get().getPollDuration().toStandardDuration().getMillis(),
+          TimeUnit.MILLISECONDS
       );
 
       started = true;
@@ -191,6 +211,8 @@ public class SQLMetadataRuleManager implements MetadataRuleManager
 
       rules.set(ImmutableMap.<String, List<Rule>>of());
 
+      future.cancel(false);
+      future = null;
       started = false;
       exec.shutdownNow();
       exec = null;
@@ -227,7 +249,9 @@ public class SQLMetadataRuleManager implements MetadataRuleManager
                             return Pair.of(
                                 r.getString("dataSource"),
                                 jsonMapper.<List<Rule>>readValue(
-                                    r.getBytes("payload"), new TypeReference<List<Rule>>(){}
+                                    r.getBytes("payload"), new TypeReference<List<Rule>>()
+                                    {
+                                    }
                                 )
                             );
                           }
@@ -237,29 +261,29 @@ public class SQLMetadataRuleManager implements MetadataRuleManager
                         }
                       }
                   )
-                   .fold(
-                       Maps.<String, List<Rule>>newHashMap(),
-                       new Folder3<Map<String, List<Rule>>, Pair<String, List<Rule>>>()
-                       {
-                         @Override
-                         public Map<String, List<Rule>> fold(
-                             Map<String, List<Rule>> retVal,
-                             Pair<String, List<Rule>> stringObjectMap,
-                             FoldController foldController,
-                             StatementContext statementContext
-                         ) throws SQLException
-                         {
-                           try {
-                             String dataSource = stringObjectMap.lhs;
-                             retVal.put(dataSource, stringObjectMap.rhs);
-                             return retVal;
-                           }
-                           catch (Exception e) {
-                             throw Throwables.propagate(e);
-                           }
-                         }
-                       }
-                   );
+                               .fold(
+                                   Maps.<String, List<Rule>>newHashMap(),
+                                   new Folder3<Map<String, List<Rule>>, Pair<String, List<Rule>>>()
+                                   {
+                                     @Override
+                                     public Map<String, List<Rule>> fold(
+                                         Map<String, List<Rule>> retVal,
+                                         Pair<String, List<Rule>> stringObjectMap,
+                                         FoldController foldController,
+                                         StatementContext statementContext
+                                     ) throws SQLException
+                                     {
+                                       try {
+                                         String dataSource = stringObjectMap.lhs;
+                                         retVal.put(dataSource, stringObjectMap.rhs);
+                                         return retVal;
+                                       }
+                                       catch (Exception e) {
+                                         throw Throwables.propagate(e);
+                                       }
+                                     }
+                                   }
+                               );
                 }
               }
           )
@@ -268,9 +292,20 @@ public class SQLMetadataRuleManager implements MetadataRuleManager
       log.info("Polled and found rules for %,d datasource(s)", newRules.size());
 
       rules.set(newRules);
+      retryStartTime = 0;
     }
     catch (Exception e) {
-      log.error(e, "Exception while polling for rules");
+      if (retryStartTime == 0) {
+        retryStartTime = System.currentTimeMillis();
+      }
+
+      if (System.currentTimeMillis() - retryStartTime > config.get().getAlertThreshold().getMillis()) {
+        log.makeAlert(e, "Exception while polling for rules")
+           .emit();
+        retryStartTime = 0;
+      } else {
+        log.error(e, "Exception while polling for rules");
+      }
     }
   }
 
@@ -298,17 +333,37 @@ public class SQLMetadataRuleManager implements MetadataRuleManager
     return retVal;
   }
 
-  public boolean overrideRule(final String dataSource, final List<Rule> newRules)
+  public boolean overrideRule(final String dataSource, final List<Rule> newRules, final AuditInfo auditInfo)
   {
+    final String ruleString;
+    try {
+      ruleString = jsonMapper.writeValueAsString(newRules);
+      log.info("Updating [%s] with rules [%s] as per [%s]", dataSource, ruleString, auditInfo);
+    }
+    catch (JsonProcessingException e) {
+      log.error(e, "Unable to write rules as string for [%s]", dataSource);
+      return false;
+    }
     synchronized (lock) {
       try {
-        dbi.withHandle(
-            new HandleCallback<Void>()
+        dbi.inTransaction(
+            new TransactionCallback<Void>()
             {
               @Override
-              public Void withHandle(Handle handle) throws Exception
+              public Void inTransaction(Handle handle, TransactionStatus transactionStatus) throws Exception
               {
-                final String version = new DateTime().toString();
+                final DateTime auditTime = DateTime.now();
+                auditManager.doAudit(
+                    AuditEntry.builder()
+                              .key(dataSource)
+                              .type("rules")
+                              .auditInfo(auditInfo)
+                              .payload(ruleString)
+                              .auditTime(auditTime)
+                              .build(),
+                    handle
+                );
+                String version = auditTime.toString();
                 handle.createStatement(
                     String.format(
                         "INSERT INTO %s (id, dataSource, version, payload) VALUES (:id, :dataSource, :version, :payload)",
@@ -331,7 +386,12 @@ public class SQLMetadataRuleManager implements MetadataRuleManager
         return false;
       }
     }
-
+    try {
+      poll();
+    }
+    catch (Exception e) {
+      log.error(e, String.format("Exception while polling for rules after overriding the rule for %s", dataSource));
+    }
     return true;
   }
 

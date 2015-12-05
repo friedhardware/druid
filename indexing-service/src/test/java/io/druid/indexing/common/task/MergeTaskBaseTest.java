@@ -20,6 +20,7 @@ package io.druid.indexing.common.task;
 import com.google.common.base.Charsets;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
+import io.druid.indexing.common.TaskToolbox;
 import io.druid.timeline.DataSegment;
 import org.joda.time.Interval;
 import org.junit.Assert;
@@ -41,10 +42,10 @@ public class MergeTaskBaseTest
           .add(segmentBuilder.interval(new Interval("2012-01-03/2012-01-05")).build())
           .build();
 
-  final MergeTaskBase testMergeTaskBase = new MergeTaskBase(null, "foo", segments)
+  final MergeTaskBase testMergeTaskBase = new MergeTaskBase(null, "foo", segments, null)
   {
     @Override
-    protected File merge(Map<DataSegment, File> segments, File outDir) throws Exception
+    protected File merge(TaskToolbox toolbox, Map<DataSegment, File> segments, File outDir) throws Exception
     {
       return null;
     }

@@ -28,6 +28,9 @@ import io.druid.indexing.common.TaskToolbox;
 import io.druid.indexing.common.actions.TaskActionClient;
 import org.joda.time.DateTime;
 
+import java.util.Map;
+import java.util.UUID;
+
 /**
  */
 public class NoopTask extends AbstractTask
@@ -62,12 +65,14 @@ public class NoopTask extends AbstractTask
       @JsonProperty("runTime") long runTime,
       @JsonProperty("isReadyTime") long isReadyTime,
       @JsonProperty("isReadyResult") String isReadyResult,
-      @JsonProperty("firehose") FirehoseFactory firehoseFactory
+      @JsonProperty("firehose") FirehoseFactory firehoseFactory,
+      @JsonProperty("context") Map<String, Object> context
   )
   {
     super(
-        id == null ? String.format("noop_%s", new DateTime()) : id,
-        "none"
+        id == null ? String.format("noop_%s_%s", new DateTime(), UUID.randomUUID().toString()) : id,
+        "none",
+        context
     );
 
     this.runTime = (runTime == 0) ? defaultRunTime : runTime;
@@ -140,6 +145,6 @@ public class NoopTask extends AbstractTask
 
   public static NoopTask create()
   {
-    return new NoopTask(null, 0, 0, null, null);
+    return new NoopTask(null, 0, 0, null, null, null);
   }
 }

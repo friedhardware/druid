@@ -20,10 +20,15 @@ package io.druid.segment.realtime.plumber;
 import com.fasterxml.jackson.annotation.JacksonInject;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import com.metamx.emitter.service.ServiceEmitter;
+import io.druid.client.cache.Cache;
+import io.druid.client.cache.CacheConfig;
 import io.druid.guice.annotations.Processing;
 import io.druid.query.QueryRunnerFactoryConglomerate;
+import io.druid.segment.IndexIO;
+import io.druid.segment.IndexMerger;
 import io.druid.segment.indexing.DataSchema;
 import io.druid.segment.indexing.RealtimeTuningConfig;
 import io.druid.segment.realtime.FireDepartmentMetrics;
@@ -46,6 +51,11 @@ public class FlushingPlumberSchool extends RealtimePlumberSchool
   private final QueryRunnerFactoryConglomerate conglomerate;
   private final DataSegmentAnnouncer segmentAnnouncer;
   private final ExecutorService queryExecutorService;
+  private final IndexMerger indexMerger;
+  private final IndexIO indexIO;
+  private final Cache cache;
+  private final CacheConfig cacheConfig;
+  private final ObjectMapper objectMapper;
 
   @JsonCreator
   public FlushingPlumberSchool(
@@ -53,7 +63,12 @@ public class FlushingPlumberSchool extends RealtimePlumberSchool
       @JacksonInject ServiceEmitter emitter,
       @JacksonInject QueryRunnerFactoryConglomerate conglomerate,
       @JacksonInject DataSegmentAnnouncer segmentAnnouncer,
-      @JacksonInject @Processing ExecutorService queryExecutorService
+      @JacksonInject @Processing ExecutorService queryExecutorService,
+      @JacksonInject IndexMerger indexMerger,
+      @JacksonInject IndexIO indexIO,
+      @JacksonInject Cache cache,
+      @JacksonInject CacheConfig cacheConfig,
+      @JacksonInject ObjectMapper objectMapper
   )
   {
     super(
@@ -63,7 +78,12 @@ public class FlushingPlumberSchool extends RealtimePlumberSchool
         segmentAnnouncer,
         null,
         null,
-        queryExecutorService
+        queryExecutorService,
+        indexMerger,
+        indexIO,
+        cache,
+        cacheConfig,
+        objectMapper
     );
 
     this.flushDuration = flushDuration == null ? defaultFlushDuration : flushDuration;
@@ -71,6 +91,11 @@ public class FlushingPlumberSchool extends RealtimePlumberSchool
     this.conglomerate = conglomerate;
     this.segmentAnnouncer = segmentAnnouncer;
     this.queryExecutorService = queryExecutorService;
+    this.indexMerger = Preconditions.checkNotNull(indexMerger, "Null IndexMerger");
+    this.indexIO = Preconditions.checkNotNull(indexIO, "Null IndexIO");
+    this.cache = cache;
+    this.cacheConfig = cacheConfig;
+    this.objectMapper = objectMapper;
   }
 
   @Override
@@ -90,7 +115,12 @@ public class FlushingPlumberSchool extends RealtimePlumberSchool
         emitter,
         conglomerate,
         segmentAnnouncer,
-        queryExecutorService
+        queryExecutorService,
+        indexMerger,
+        indexIO,
+        cache,
+        cacheConfig,
+        objectMapper
     );
   }
 

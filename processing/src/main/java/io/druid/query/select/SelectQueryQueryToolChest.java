@@ -24,18 +24,17 @@ import com.google.common.base.Functions;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import com.google.inject.Inject;
+import com.metamx.common.StringUtils;
 import com.metamx.common.guava.MergeSequence;
 import com.metamx.common.guava.Sequence;
 import com.metamx.common.guava.nary.BinaryFn;
-import com.metamx.common.StringUtils;
 import com.metamx.emitter.service.ServiceMetricEvent;
 import io.druid.collections.OrderedMergeSequence;
 import io.druid.granularity.QueryGranularity;
 import io.druid.query.CacheStrategy;
-import io.druid.query.IntervalChunkingQueryRunner;
+import io.druid.query.DruidMetrics;
+import io.druid.query.IntervalChunkingQueryRunnerDecorator;
 import io.druid.query.Query;
-import io.druid.query.QueryConfig;
-import io.druid.query.QueryMetricUtil;
 import io.druid.query.QueryRunner;
 import io.druid.query.QueryToolChest;
 import io.druid.query.Result;
@@ -66,14 +65,16 @@ public class SelectQueryQueryToolChest extends QueryToolChest<Result<SelectResul
       {
       };
 
-  private final QueryConfig config;
   private final ObjectMapper jsonMapper;
 
+  private final IntervalChunkingQueryRunnerDecorator intervalChunkingQueryRunnerDecorator;
+
   @Inject
-  public SelectQueryQueryToolChest(QueryConfig config, ObjectMapper jsonMapper)
+  public SelectQueryQueryToolChest(ObjectMapper jsonMapper,
+      IntervalChunkingQueryRunnerDecorator intervalChunkingQueryRunnerDecorator)
   {
-    this.config = config;
     this.jsonMapper = jsonMapper;
+    this.intervalChunkingQueryRunnerDecorator = intervalChunkingQueryRunnerDecorator;
   }
 
   @Override
@@ -120,7 +121,7 @@ public class SelectQueryQueryToolChest extends QueryToolChest<Result<SelectResul
   @Override
   public ServiceMetricEvent.Builder makeMetricBuilder(SelectQuery query)
   {
-    return QueryMetricUtil.makeQueryTimeMetric(query);
+    return DruidMetrics.makePartialQueryTimeMetric(query);
   }
 
   @Override
@@ -270,11 +271,7 @@ public class SelectQueryQueryToolChest extends QueryToolChest<Result<SelectResul
   @Override
   public QueryRunner<Result<SelectResultValue>> preMergeQueryDecoration(QueryRunner<Result<SelectResultValue>> runner)
   {
-    return new IntervalChunkingQueryRunner<Result<SelectResultValue>>(
-        runner,
-        config.getChunkPeriod()
-
-    );
+    return intervalChunkingQueryRunnerDecorator.decorate(runner, this);
   }
 
   public Ordering<Result<SelectResultValue>> getOrdering()

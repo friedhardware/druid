@@ -19,6 +19,7 @@ package io.druid.indexing.worker;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.druid.indexing.common.TaskStatus;
+import io.druid.indexing.common.TestUtils;
 import io.druid.indexing.common.task.RealtimeIndexTask;
 import io.druid.indexing.common.task.Task;
 import io.druid.indexing.common.task.TaskResource;
@@ -32,13 +33,21 @@ import io.druid.segment.realtime.FireDepartmentMetrics;
 import io.druid.segment.realtime.firehose.LocalFirehoseFactory;
 import io.druid.segment.realtime.plumber.Plumber;
 import io.druid.segment.realtime.plumber.PlumberSchool;
-import junit.framework.Assert;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.File;
 
 public class TaskAnnouncementTest
 {
+  private final ObjectMapper jsonMapper;
+
+  public TaskAnnouncementTest()
+  {
+    TestUtils testUtils = new TestUtils();
+    jsonMapper = testUtils.getTestObjectMapper();
+  }
+
   @Test
   public void testBackwardsCompatibleSerde() throws Exception
   {
@@ -46,8 +55,9 @@ public class TaskAnnouncementTest
         "theid",
         new TaskResource("rofl", 2),
         new FireDepartment(
-            new DataSchema("foo", null, new AggregatorFactory[0], null),
-            new RealtimeIOConfig(new LocalFirehoseFactory(new File("lol"), "rofl", null), new PlumberSchool()
+            new DataSchema("foo", null, new AggregatorFactory[0], null, new DefaultObjectMapper()),
+            new RealtimeIOConfig(
+                new LocalFirehoseFactory(new File("lol"), "rofl", null), new PlumberSchool()
             {
               @Override
               public Plumber findPlumber(
@@ -56,13 +66,17 @@ public class TaskAnnouncementTest
               {
                 return null;
               }
-            }), null
-        )
+
+            },
+                null
+            ),
+            null
+        ),
+        null
     );
     final TaskStatus status = TaskStatus.running(task.getId());
     final TaskAnnouncement announcement = TaskAnnouncement.create(task, status);
 
-    final ObjectMapper jsonMapper = new DefaultObjectMapper();
     final String statusJson = jsonMapper.writeValueAsString(status);
     final String announcementJson = jsonMapper.writeValueAsString(announcement);
 

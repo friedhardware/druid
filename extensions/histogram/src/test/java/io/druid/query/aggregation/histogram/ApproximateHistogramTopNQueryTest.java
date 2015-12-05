@@ -27,8 +27,8 @@ import io.druid.query.QueryRunnerTestHelper;
 import io.druid.query.Result;
 import io.druid.query.TestQueryRunners;
 import io.druid.query.aggregation.AggregatorFactory;
-import io.druid.query.aggregation.MaxAggregatorFactory;
-import io.druid.query.aggregation.MinAggregatorFactory;
+import io.druid.query.aggregation.DoubleMaxAggregatorFactory;
+import io.druid.query.aggregation.DoubleMinAggregatorFactory;
 import io.druid.query.aggregation.PostAggregator;
 import io.druid.query.topn.TopNQuery;
 import io.druid.query.topn.TopNQueryBuilder;
@@ -45,7 +45,6 @@ import org.junit.runners.Parameterized;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,38 +53,35 @@ import java.util.Map;
 public class ApproximateHistogramTopNQueryTest
 {
   @Parameterized.Parameters
-  public static Collection<?> constructorFeeder() throws IOException
+  public static Iterable<Object[]> constructorFeeder() throws IOException
   {
-    List<Object> retVal = Lists.newArrayList();
-    retVal.addAll(
-        QueryRunnerTestHelper.makeQueryRunners(
-            new TopNQueryRunnerFactory(
-                TestQueryRunners.getPool(),
-                new TopNQueryQueryToolChest(new TopNQueryConfig()),
-                QueryRunnerTestHelper.NOOP_QUERYWATCHER
+    return QueryRunnerTestHelper.transformToConstructionFeeder(
+        Iterables.concat(
+            QueryRunnerTestHelper.makeQueryRunners(
+                new TopNQueryRunnerFactory(
+                    TestQueryRunners.getPool(),
+                    new TopNQueryQueryToolChest(new TopNQueryConfig(), QueryRunnerTestHelper.NoopIntervalChunkingQueryRunnerDecorator()),
+                    QueryRunnerTestHelper.NOOP_QUERYWATCHER
+                )
+            ),
+            QueryRunnerTestHelper.makeQueryRunners(
+                new TopNQueryRunnerFactory(
+                    new StupidPool<ByteBuffer>(
+                        new Supplier<ByteBuffer>()
+                        {
+                          @Override
+                          public ByteBuffer get()
+                          {
+                            return ByteBuffer.allocate(2000);
+                          }
+                        }
+                    ),
+                    new TopNQueryQueryToolChest(new TopNQueryConfig(), QueryRunnerTestHelper.NoopIntervalChunkingQueryRunnerDecorator()),
+                    QueryRunnerTestHelper.NOOP_QUERYWATCHER
+                )
             )
         )
     );
-    retVal.addAll(
-        QueryRunnerTestHelper.makeQueryRunners(
-            new TopNQueryRunnerFactory(
-                new StupidPool<ByteBuffer>(
-                    new Supplier<ByteBuffer>()
-                    {
-                      @Override
-                      public ByteBuffer get()
-                      {
-                        return ByteBuffer.allocate(2000);
-                      }
-                    }
-                ),
-                new TopNQueryQueryToolChest(new TopNQueryConfig()),
-                QueryRunnerTestHelper.NOOP_QUERYWATCHER
-            )
-        )
-    );
-
-    return retVal;
   }
 
   private final QueryRunner runner;
@@ -121,8 +117,8 @@ public class ApproximateHistogramTopNQueryTest
                 Iterables.concat(
                     QueryRunnerTestHelper.commonAggregators,
                     Lists.newArrayList(
-                        new MaxAggregatorFactory("maxIndex", "index"),
-                        new MinAggregatorFactory("minIndex", "index"),
+                        new DoubleMaxAggregatorFactory("maxIndex", "index"),
+                        new DoubleMinAggregatorFactory("minIndex", "index"),
                         factory
                     )
                 )

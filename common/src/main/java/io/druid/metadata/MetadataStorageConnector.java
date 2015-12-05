@@ -21,7 +21,7 @@ package io.druid.metadata;
  */
 public interface MetadataStorageConnector
 {
-  public Void insertOrUpdate(
+  Void insertOrUpdate(
       final String tableName,
       final String keyColumn,
       final String valueColumn,
@@ -30,18 +30,22 @@ public interface MetadataStorageConnector
   ) throws Exception;
 
 
-  public byte[] lookup(
+  byte[] lookup(
       final String tableName,
       final String keyColumn,
       final String valueColumn,
       final String key
   );
 
-  public void createSegmentTable();
+  void createPendingSegmentsTable();
 
-  public void createRulesTable();
+  void createSegmentTable();
 
-  public void createConfigTable();
+  void createRulesTable();
 
-  public void createTaskTables();
+  void createConfigTable();
+
+  void createTaskTables();
+
+  void createAuditTable();
 }

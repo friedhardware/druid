@@ -23,7 +23,9 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
@@ -33,17 +35,18 @@ import com.google.common.hash.Hashing;
 import com.metamx.common.ISE;
 import com.metamx.common.guava.Comparators;
 import com.metamx.common.logger.Logger;
+import io.druid.data.input.Committer;
 import io.druid.data.input.Firehose;
 import io.druid.data.input.FirehoseFactory;
 import io.druid.data.input.InputRow;
 import io.druid.data.input.Rows;
 import io.druid.granularity.QueryGranularity;
-import io.druid.indexer.HadoopDruidIndexerConfig;
 import io.druid.indexing.common.TaskLock;
 import io.druid.indexing.common.TaskStatus;
 import io.druid.indexing.common.TaskToolbox;
 import io.druid.indexing.common.index.YeOldePlumberSchool;
 import io.druid.query.aggregation.hyperloglog.HyperLogLogCollector;
+import io.druid.segment.IndexSpec;
 import io.druid.segment.indexing.DataSchema;
 import io.druid.segment.indexing.IOConfig;
 import io.druid.segment.indexing.IngestionSpec;
@@ -52,6 +55,7 @@ import io.druid.segment.indexing.TuningConfig;
 import io.druid.segment.indexing.granularity.GranularitySpec;
 import io.druid.segment.loading.DataSegmentPusher;
 import io.druid.segment.realtime.FireDepartmentMetrics;
+import io.druid.segment.realtime.plumber.Committers;
 import io.druid.segment.realtime.plumber.Plumber;
 import io.druid.timeline.DataSegment;
 import io.druid.timeline.partition.HashBasedNumberedShardSpec;
@@ -64,6 +68,7 @@ import javax.annotation.Nullable;
 import java.io.File;
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.SortedSet;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -116,6 +121,21 @@ public class IndexTask extends AbstractFixedIntervalTask
     );
   }
 
+  static RealtimeTuningConfig convertTuningConfig(ShardSpec shardSpec, int rowFlushBoundary, IndexSpec indexSpec)
+  {
+    return new RealtimeTuningConfig(
+        rowFlushBoundary,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        shardSpec,
+        indexSpec
+    );
+  }
+
   @JsonIgnore
   private final IndexIngestionSpec ingestionSchema;
 
@@ -124,15 +144,19 @@ public class IndexTask extends AbstractFixedIntervalTask
   @JsonCreator
   public IndexTask(
       @JsonProperty("id") String id,
+      @JsonProperty("resource") TaskResource taskResource,
       @JsonProperty("spec") IndexIngestionSpec ingestionSchema,
-      @JacksonInject ObjectMapper jsonMapper
+      @JacksonInject ObjectMapper jsonMapper,
+      @JsonProperty("context") Map<String, Object> context
   )
   {
     super(
         // _not_ the version, just something uniqueish
         makeId(id, ingestionSchema),
+        taskResource,
         makeDataSource(ingestionSchema),
-        makeInterval(ingestionSchema)
+        makeInterval(ingestionSchema),
+        context
     );
 
 
@@ -202,13 +226,21 @@ public class IndexTask extends AbstractFixedIntervalTask
     final GranularitySpec granularitySpec = ingestionSchema.getDataSchema().getGranularitySpec();
 
     SortedSet<Interval> retVal = Sets.newTreeSet(Comparators.intervalsByStartThenEnd());
+    int unparsed = 0;
     try (Firehose firehose = firehoseFactory.connect(ingestionSchema.getDataSchema().getParser())) {
       while (firehose.hasMore()) {
         final InputRow inputRow = firehose.nextRow();
-        Interval interval = granularitySpec.getSegmentGranularity()
-                                           .bucket(new DateTime(inputRow.getTimestampFromEpoch()));
-        retVal.add(interval);
+        DateTime dt = new DateTime(inputRow.getTimestampFromEpoch());
+        Optional<Interval> interval = granularitySpec.bucketInterval(dt);
+        if (interval.isPresent()) {
+          retVal.add(interval.get());
+        } else {
+          unparsed++;
+        }
       }
+    }
+    if (unparsed > 0) {
+      log.warn("Unable to to find a matching interval for [%,d] events", unparsed);
     }
 
     return retVal;
@@ -238,8 +270,7 @@ public class IndexTask extends AbstractFixedIntervalTask
               inputRow
           );
           collector.add(
-              hashFunction.hashBytes(HadoopDruidIndexerConfig.jsonMapper.writeValueAsBytes(groupKey))
-                          .asBytes()
+              hashFunction.hashBytes(jsonMapper.writeValueAsBytes(groupKey)).asBytes()
           );
         }
       }
@@ -261,13 +292,7 @@ public class IndexTask extends AbstractFixedIntervalTask
       shardSpecs.add(new NoneShardSpec());
     } else {
       for (int i = 0; i < numberOfShards; ++i) {
-        shardSpecs.add(
-            new HashBasedNumberedShardSpec(
-                i,
-                numberOfShards,
-                HadoopDruidIndexerConfig.jsonMapper
-            )
-        );
+        shardSpecs.add(new HashBasedNumberedShardSpec(i, numberOfShards, jsonMapper));
       }
     }
 
@@ -317,24 +342,28 @@ public class IndexTask extends AbstractFixedIntervalTask
       }
     };
 
-    // Create firehose + plumber
-    final FireDepartmentMetrics metrics = new FireDepartmentMetrics();
-    final Firehose firehose = firehoseFactory.connect(ingestionSchema.getDataSchema().getParser());
-    final Plumber plumber = new YeOldePlumberSchool(
-        interval,
-        version,
-        wrappedDataSegmentPusher,
-        tmpDir
-    ).findPlumber(
-        schema,
-        new RealtimeTuningConfig(null, null, null, null, null, null, null, shardSpec, null, null, null),
-        metrics
-    );
-
     // rowFlushBoundary for this job
     final int myRowFlushBoundary = rowFlushBoundary > 0
                                    ? rowFlushBoundary
                                    : toolbox.getConfig().getDefaultRowFlushBoundary();
+
+    // Create firehose + plumber
+    final FireDepartmentMetrics metrics = new FireDepartmentMetrics();
+    final Firehose firehose = firehoseFactory.connect(ingestionSchema.getDataSchema().getParser());
+    final Supplier<Committer> committerSupplier = Committers.supplierFromFirehose(firehose);
+    final Plumber plumber = new YeOldePlumberSchool(
+        interval,
+        version,
+        wrappedDataSegmentPusher,
+        tmpDir,
+        toolbox.getIndexMerger(),
+        toolbox.getIndexIO()
+    ).findPlumber(
+        schema,
+        convertTuningConfig(shardSpec, myRowFlushBoundary, ingestionSchema.getTuningConfig().getIndexSpec()),
+        metrics
+    );
+
     final QueryGranularity rollupGran = ingestionSchema.getDataSchema().getGranularitySpec().getQueryGranularity();
     try {
       plumber.startJob();
@@ -343,7 +372,7 @@ public class IndexTask extends AbstractFixedIntervalTask
         final InputRow inputRow = firehose.nextRow();
 
         if (shouldIndex(shardSpec, interval, inputRow, rollupGran)) {
-          int numRows = plumber.add(inputRow);
+          int numRows = plumber.add(inputRow, committerSupplier);
           if (numRows == -1) {
             throw new ISE(
                 String.format(
@@ -353,10 +382,6 @@ public class IndexTask extends AbstractFixedIntervalTask
             );
           }
           metrics.incrementProcessed();
-
-          if (numRows >= myRowFlushBoundary) {
-            plumber.persist(firehose.commit());
-          }
         } else {
           metrics.incrementThrownAway();
         }
@@ -366,7 +391,7 @@ public class IndexTask extends AbstractFixedIntervalTask
       firehose.close();
     }
 
-    plumber.persist(firehose.commit());
+    plumber.persist(committerSupplier.get());
 
     try {
       plumber.finishJob();
@@ -407,7 +432,7 @@ public class IndexTask extends AbstractFixedIntervalTask
 
       this.dataSchema = dataSchema;
       this.ioConfig = ioConfig;
-      this.tuningConfig = tuningConfig == null ? new IndexTuningConfig(0, 0, null) : tuningConfig;
+      this.tuningConfig = tuningConfig == null ? new IndexTuningConfig(0, 0, null, null) : tuningConfig;
     }
 
     @Override
@@ -457,21 +482,26 @@ public class IndexTask extends AbstractFixedIntervalTask
   {
     private static final int DEFAULT_TARGET_PARTITION_SIZE = 5000000;
     private static final int DEFAULT_ROW_FLUSH_BOUNDARY = 500000;
+    private static final IndexSpec DEFAULT_INDEX_SPEC = new IndexSpec();
 
     private final int targetPartitionSize;
     private final int rowFlushBoundary;
     private final int numShards;
+    private final IndexSpec indexSpec;
 
     @JsonCreator
     public IndexTuningConfig(
         @JsonProperty("targetPartitionSize") int targetPartitionSize,
         @JsonProperty("rowFlushBoundary") int rowFlushBoundary,
-        @JsonProperty("numShards") @Nullable Integer numShards
+        @JsonProperty("numShards") @Nullable Integer numShards,
+        @JsonProperty("indexSpec") @Nullable IndexSpec indexSpec
     )
     {
       this.targetPartitionSize = targetPartitionSize == 0 ? DEFAULT_TARGET_PARTITION_SIZE : targetPartitionSize;
+      Preconditions.checkArgument(rowFlushBoundary >= 0, "rowFlushBoundary should be positive or zero");
       this.rowFlushBoundary = rowFlushBoundary == 0 ? DEFAULT_ROW_FLUSH_BOUNDARY : rowFlushBoundary;
       this.numShards = numShards == null ? -1 : numShards;
+      this.indexSpec = indexSpec == null ? DEFAULT_INDEX_SPEC : indexSpec;
       Preconditions.checkArgument(
           this.targetPartitionSize == -1 || this.numShards == -1,
           "targetPartitionsSize and shardCount both cannot be set"
@@ -494,6 +524,12 @@ public class IndexTask extends AbstractFixedIntervalTask
     public int getNumShards()
     {
       return numShards;
+    }
+
+    @JsonProperty
+    public IndexSpec getIndexSpec()
+    {
+      return indexSpec;
     }
   }
 }

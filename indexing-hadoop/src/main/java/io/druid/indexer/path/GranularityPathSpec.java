@@ -28,8 +28,8 @@ import io.druid.indexer.hadoop.FSSpideringIterator;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.mapreduce.InputFormat;
 import org.apache.hadoop.mapreduce.Job;
-import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
 import org.joda.time.DateTime;
 import org.joda.time.Interval;
 import org.joda.time.format.DateTimeFormat;
@@ -49,6 +49,7 @@ public class GranularityPathSpec implements PathSpec
   private String filePattern;
   private Granularity dataGranularity;
   private String pathFormat;
+  private Class<? extends InputFormat> inputFormat;
 
   @JsonProperty
   public String getInputPath()
@@ -59,6 +60,17 @@ public class GranularityPathSpec implements PathSpec
   public void setInputPath(String inputPath)
   {
     this.inputPath = inputPath;
+  }
+
+  @JsonProperty
+  public Class<? extends InputFormat> getInputFormat()
+  {
+    return inputFormat;
+  }
+
+  public void setInputFormat(Class<? extends InputFormat> inputFormat)
+  {
+    this.inputFormat = inputFormat;
   }
 
   @JsonProperty
@@ -139,7 +151,7 @@ public class GranularityPathSpec implements PathSpec
 
     for (String path : paths) {
       log.info("Appending path[%s]", path);
-      FileInputFormat.addInputPath(job, new Path(path));
+      StaticPathSpec.addToMultipleInputs(config, job, path, inputFormat);
     }
 
     return job;

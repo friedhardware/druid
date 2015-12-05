@@ -32,6 +32,7 @@ import io.druid.timeline.DataSegment;
 import org.joda.time.Interval;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  */
@@ -43,13 +44,15 @@ public class KillTask extends AbstractFixedIntervalTask
   public KillTask(
       @JsonProperty("id") String id,
       @JsonProperty("dataSource") String dataSource,
-      @JsonProperty("interval") Interval interval
+      @JsonProperty("interval") Interval interval,
+      @JsonProperty("context") Map<String, Object> context
   )
   {
     super(
-        TaskUtils.makeId(id, "kill", dataSource, interval),
+        makeId(id, "kill", dataSource, interval),
         dataSource,
-        interval
+        interval,
+        context
     );
   }
 

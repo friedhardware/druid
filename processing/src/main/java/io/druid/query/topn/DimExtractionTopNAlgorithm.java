@@ -27,6 +27,7 @@ import io.druid.segment.data.IndexedInts;
 import java.util.Map;
 
 /**
+ * This has to be its own strategy because the pooled topn algorithm assumes each index is unique, and cannot handle multiple index numerals referencing the same dimension value.
  */
 public class DimExtractionTopNAlgorithm extends BaseTopNAlgorithm<Aggregator[][], Map<String, Aggregator[]>, TopNParams>
 {
@@ -44,7 +45,8 @@ public class DimExtractionTopNAlgorithm extends BaseTopNAlgorithm<Aggregator[][]
 
   @Override
   public TopNParams makeInitParams(
-      final DimensionSelector dimSelector, final Cursor cursor
+      final DimensionSelector dimSelector,
+      final Cursor cursor
   )
   {
     return new TopNParams(
@@ -64,11 +66,10 @@ public class DimExtractionTopNAlgorithm extends BaseTopNAlgorithm<Aggregator[][]
         params.getCardinality()
     );
 
-    if (!query.getDimensionSpec().preservesOrdering()) {
-      return provider.build();
-    }
-
-    return query.getTopNMetricSpec().configureOptimizer(provider).build();
+    // Unlike regular topN we cannot rely on ordering to optimize.
+    // Optimization possibly requires a reverse lookup from value to ID, which is
+    // not possible when applying an extraction function
+    return provider.build();
   }
 
   @Override
@@ -98,11 +99,11 @@ public class DimExtractionTopNAlgorithm extends BaseTopNAlgorithm<Aggregator[][]
       final IndexedInts dimValues = dimSelector.getRow();
 
       for (int i = 0; i < dimValues.size(); ++i) {
-        final int dimIndex = dimValues.get(i);
 
+        final int dimIndex = dimValues.get(i);
         Aggregator[] theAggregators = rowSelector[dimIndex];
         if (theAggregators == null) {
-          String key = query.getDimensionSpec().getDimExtractionFn().apply(dimSelector.lookupName(dimIndex));
+          final String key = dimSelector.lookupName(dimIndex);
           theAggregators = aggregatesStore.get(key);
           if (theAggregators == null) {
             theAggregators = makeAggregators(cursor, query.getAggregatorSpecs());

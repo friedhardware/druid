@@ -23,6 +23,7 @@ import com.google.inject.Module;
 import com.google.inject.TypeLiteral;
 import com.google.inject.multibindings.MapBinder;
 import io.druid.cli.QueryJettyServerInitializer;
+import io.druid.client.cache.CacheConfig;
 import io.druid.metadata.MetadataSegmentPublisher;
 import io.druid.query.QuerySegmentWalker;
 import io.druid.segment.realtime.FireDepartment;
@@ -34,7 +35,7 @@ import io.druid.segment.realtime.firehose.ChatHandlerResource;
 import io.druid.segment.realtime.firehose.NoopChatHandlerProvider;
 import io.druid.segment.realtime.firehose.ServiceAnnouncingChatHandlerProvider;
 import io.druid.server.QueryResource;
-import io.druid.server.initialization.JettyServerInitializer;
+import io.druid.server.initialization.jetty.JettyServerInitializer;
 import org.eclipse.jetty.server.Server;
 
 import java.util.List;
@@ -43,6 +44,7 @@ import java.util.List;
  */
 public class RealtimeModule implements Module
 {
+
   @Override
   public void configure(Binder binder)
   {
@@ -64,7 +66,7 @@ public class RealtimeModule implements Module
         binder,
         "druid.realtime.chathandler.type",
         Key.get(ChatHandlerProvider.class),
-        Key.get(NoopChatHandlerProvider.class)
+        Key.get(ServiceAnnouncingChatHandlerProvider.class)
     );
     final MapBinder<String, ChatHandlerProvider> handlerProviderBinder = PolyBind.optionBinder(
         binder, Key.get(ChatHandlerProvider.class)
@@ -78,6 +80,9 @@ public class RealtimeModule implements Module
     binder.bind(new TypeLiteral<List<FireDepartment>>(){})
           .toProvider(FireDepartmentsProvider.class)
           .in(LazySingleton.class);
+
+    JsonConfigProvider.bind(binder, "druid.realtime.cache", CacheConfig.class);
+    binder.install(new CacheModule());
 
     binder.bind(QuerySegmentWalker.class).to(RealtimeManager.class).in(ManageLifecycle.class);
     binder.bind(NodeTypeConfig.class).toInstance(new NodeTypeConfig("realtime"));

@@ -17,19 +17,31 @@
 
 package io.druid.server.http;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.inject.Inject;
+
+import io.druid.audit.AuditEntry;
+import io.druid.audit.AuditInfo;
+import io.druid.audit.AuditManager;
 import io.druid.metadata.MetadataRuleManager;
 import io.druid.server.coordinator.rules.Rule;
 
+import org.joda.time.Interval;
+
+import javax.servlet.http.HttpServletRequest;
 import javax.ws.rs.Consumes;
+import javax.ws.rs.DefaultValue;
 import javax.ws.rs.GET;
+import javax.ws.rs.HeaderParam;
 import javax.ws.rs.POST;
 import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
 import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.Response;
+
 import java.util.List;
 
 /**
@@ -38,13 +50,16 @@ import java.util.List;
 public class RulesResource
 {
   private final MetadataRuleManager databaseRuleManager;
+  private final AuditManager auditManager;
 
   @Inject
   public RulesResource(
-      MetadataRuleManager databaseRuleManager
+      MetadataRuleManager databaseRuleManager,
+      AuditManager auditManager
   )
   {
     this.databaseRuleManager = databaseRuleManager;
+    this.auditManager = auditManager;
   }
 
   @GET
@@ -60,7 +75,6 @@ public class RulesResource
   public Response getDatasourceRules(
       @PathParam("dataSourceName") final String dataSourceName,
       @QueryParam("full") final String full
-
   )
   {
     if (full != null) {
@@ -71,17 +85,83 @@ public class RulesResource
                    .build();
   }
 
+  // default value is used for backwards compatibility
   @POST
   @Path("/{dataSourceName}")
   @Consumes(MediaType.APPLICATION_JSON)
   public Response setDatasourceRules(
       @PathParam("dataSourceName") final String dataSourceName,
-      final List<Rule> rules
+      final List<Rule> rules,
+      @HeaderParam(AuditManager.X_DRUID_AUTHOR) @DefaultValue("") final String author,
+      @HeaderParam(AuditManager.X_DRUID_COMMENT) @DefaultValue("") final String comment,
+      @Context HttpServletRequest req
   )
   {
-    if (databaseRuleManager.overrideRule(dataSourceName, rules)) {
+    if (databaseRuleManager.overrideRule(
+        dataSourceName,
+        rules,
+        new AuditInfo(author, comment, req.getRemoteAddr())
+    )) {
       return Response.ok().build();
     }
     return Response.status(Response.Status.INTERNAL_SERVER_ERROR).build();
   }
+
+  @GET
+  @Path("/{dataSourceName}/history")
+  @Produces(MediaType.APPLICATION_JSON)
+  public Response getDatasourceRuleHistory(
+      @PathParam("dataSourceName") final String dataSourceName,
+      @QueryParam("interval") final String interval,
+      @QueryParam("count") final Integer count
+  )
+  {
+    try {
+      return Response.ok(getRuleHistory(dataSourceName, interval, count))
+                     .build();
+    } catch (IllegalArgumentException e) {
+      return Response.status(Response.Status.BAD_REQUEST)
+                     .entity(ImmutableMap.<String, Object>of("error", e.getMessage()))
+                     .build();
+    }
+  }
+
+  @GET
+  @Path("/history")
+  @Produces(MediaType.APPLICATION_JSON)
+  public Response getDatasourceRuleHistory(
+      @QueryParam("interval") final String interval,
+      @QueryParam("count") final Integer count
+  )
+  {
+    try {
+      return Response.ok(getRuleHistory(null, interval, count))
+                     .build();
+    } catch (IllegalArgumentException e) {
+      return Response.status(Response.Status.BAD_REQUEST)
+                     .entity(ImmutableMap.<String, Object>of("error", e.getMessage()))
+                     .build();
+    }
+  }
+
+  private List<AuditEntry> getRuleHistory(
+      final String dataSourceName,
+      final String interval,
+      final Integer count
+  ) throws IllegalArgumentException
+  {
+      if (interval == null && count != null) {
+        if (dataSourceName != null) {
+          return auditManager.fetchAuditHistory(dataSourceName, "rules", count);
+        }
+        return auditManager.fetchAuditHistory("rules", count);
+      }
+
+      Interval theInterval = interval == null ? null : new Interval(interval);
+      if (dataSourceName != null) {
+        return auditManager.fetchAuditHistory(dataSourceName, "rules", theInterval);
+      }
+      return auditManager.fetchAuditHistory("rules", theInterval);
+  }
+
 }

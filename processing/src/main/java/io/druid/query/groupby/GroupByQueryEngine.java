@@ -42,7 +42,6 @@ import io.druid.query.aggregation.AggregatorFactory;
 import io.druid.query.aggregation.BufferAggregator;
 import io.druid.query.aggregation.PostAggregator;
 import io.druid.query.dimension.DimensionSpec;
-import io.druid.query.extraction.DimExtractionFn;
 import io.druid.segment.Cursor;
 import io.druid.segment.DimensionSelector;
 import io.druid.segment.StorageAdapter;
@@ -300,7 +299,7 @@ public class GroupByQueryEngine
     private List<ByteBuffer> unprocessedKeys;
     private Iterator<Row> delegate;
 
-    public RowIterator(GroupByQuery query, Cursor cursor, ByteBuffer metricsBuffer, GroupByQueryConfig config)
+    public RowIterator(GroupByQuery query, final Cursor cursor, ByteBuffer metricsBuffer, GroupByQueryConfig config)
     {
       this.query = query;
       this.cursor = cursor;
@@ -312,9 +311,13 @@ public class GroupByQueryEngine
       dimensionSpecs = query.getDimensions();
       dimensions = Lists.newArrayListWithExpectedSize(dimensionSpecs.size());
       dimNames = Lists.newArrayListWithExpectedSize(dimensionSpecs.size());
+
       for (int i = 0; i < dimensionSpecs.size(); ++i) {
         final DimensionSpec dimSpec = dimensionSpecs.get(i);
-        final DimensionSelector selector = cursor.makeDimensionSelector(dimSpec.getDimension());
+        final DimensionSelector selector = cursor.makeDimensionSelector(
+            dimSpec.getDimension(),
+            dimSpec.getExtractionFn()
+        );
         if (selector != null) {
           dimensions.add(selector);
           dimNames.add(dimSpec.getOutputName());
@@ -361,11 +364,11 @@ public class GroupByQueryEngine
         }
         cursor.advance();
       }
-      while (!cursor.isDone()) {
+      while (!cursor.isDone() && rowUpdater.getNumRows() < config.getMaxIntermediateRows()) {
         ByteBuffer key = ByteBuffer.allocate(dimensions.size() * Ints.BYTES);
 
         unprocessedKeys = rowUpdater.updateValues(key, dimensions);
-        if (unprocessedKeys != null || rowUpdater.getNumRows() > config.getMaxIntermediateRows()) {
+        if (unprocessedKeys != null) {
           break;
         }
 
@@ -395,14 +398,9 @@ public class GroupByQueryEngine
                   ByteBuffer keyBuffer = input.getKey().duplicate();
                   for (int i = 0; i < dimensions.size(); ++i) {
                     final DimensionSelector dimSelector = dimensions.get(i);
-                    final DimExtractionFn fn = dimensionSpecs.get(i).getDimExtractionFn();
                     final int dimVal = keyBuffer.getInt();
                     if (dimSelector.getValueCardinality() != dimVal) {
-                      if (fn != null) {
-                        theEvent.put(dimNames.get(i), fn.apply(dimSelector.lookupName(dimVal)));
-                      } else {
-                        theEvent.put(dimNames.get(i), dimSelector.lookupName(dimVal));
-                      }
+                      theEvent.put(dimNames.get(i), dimSelector.lookupName(dimVal));
                     }
                   }
 

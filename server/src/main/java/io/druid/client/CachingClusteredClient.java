@@ -27,18 +27,15 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Iterators;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Ordering;
 import com.google.common.collect.Sets;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.ListeningExecutorService;
 import com.google.common.util.concurrent.MoreExecutors;
-import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import com.google.inject.Inject;
 import com.metamx.common.Pair;
 import com.metamx.common.guava.BaseSequence;
-import com.metamx.common.guava.Comparators;
 import com.metamx.common.guava.LazySequence;
 import com.metamx.common.guava.Sequence;
 import com.metamx.common.guava.Sequences;
@@ -47,6 +44,7 @@ import io.druid.client.cache.Cache;
 import io.druid.client.cache.CacheConfig;
 import io.druid.client.selector.QueryableDruidServer;
 import io.druid.client.selector.ServerSelector;
+import io.druid.concurrent.Execs;
 import io.druid.guice.annotations.BackgroundCaching;
 import io.druid.guice.annotations.Smile;
 import io.druid.query.BySegmentResultValueClass;
@@ -68,7 +66,6 @@ import org.joda.time.Interval;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -77,7 +74,6 @@ import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  */
@@ -109,9 +105,7 @@ public class CachingClusteredClient<T> implements QueryRunner<T>
     this.backgroundExecutorService = MoreExecutors.listeningDecorator(backgroundExecutorService);
 
     serverView.registerSegmentCallback(
-        Executors.newFixedThreadPool(
-            1, new ThreadFactoryBuilder().setDaemon(true).setNameFormat("CCClient-ServerView-CB-%d").build()
-        ),
+        Execs.singleThreaded("CCClient-ServerView-CB-%d"),
         new ServerView.BaseSegmentCallback()
         {
           @Override
@@ -213,7 +207,7 @@ public class CachingClusteredClient<T> implements QueryRunner<T>
       // Pull cached segments from cache and remove from set of segments to query
       final Map<Cache.NamedKey, byte[]> cachedValues;
       if (useCache) {
-        cachedValues = cache.getBulk(cacheKeys.values());
+        cachedValues = cache.getBulk(Iterables.limit(cacheKeys.values(), cacheConfig.getCacheBulkMergeLimit()));
       } else {
         cachedValues = ImmutableMap.of();
       }
@@ -244,7 +238,11 @@ public class CachingClusteredClient<T> implements QueryRunner<T>
       final QueryableDruidServer queryableDruidServer = segment.lhs.pick();
 
       if (queryableDruidServer == null) {
-        log.makeAlert("No servers found for %s?! How can this be?!", segment.rhs).emit();
+        log.makeAlert(
+            "No servers found for SegmentDescriptor[%s] for DataSource[%s]?! How can this be?!",
+            segment.rhs,
+            query.getDataSource()
+        ).emit();
       } else {
         final DruidServer server = queryableDruidServer.getServer();
         List<SegmentDescriptor> descriptors = serverSegments.get(server);
@@ -264,14 +262,14 @@ public class CachingClusteredClient<T> implements QueryRunner<T>
           @Override
           public Sequence<T> get()
           {
-            ArrayList<Pair<Interval, Sequence<T>>> sequencesByInterval = Lists.newArrayList();
+            ArrayList<Sequence<T>> sequencesByInterval = Lists.newArrayList();
             addSequencesFromCache(sequencesByInterval);
             addSequencesFromServer(sequencesByInterval);
 
             return mergeCachedAndUncachedSequences(sequencesByInterval, toolChest);
           }
 
-          private void addSequencesFromCache(ArrayList<Pair<Interval, Sequence<T>>> listOfSequences)
+          private void addSequencesFromCache(ArrayList<Sequence<T>> listOfSequences)
           {
             if (strategy == null) {
               return;
@@ -308,11 +306,11 @@ public class CachingClusteredClient<T> implements QueryRunner<T>
                     }
                   }
               );
-              listOfSequences.add(Pair.of(cachedResultPair.lhs, Sequences.map(cachedSequence, pullFromCacheFunction)));
+              listOfSequences.add(Sequences.map(cachedSequence, pullFromCacheFunction));
             }
           }
 
-          private void addSequencesFromServer(ArrayList<Pair<Interval, Sequence<T>>> listOfSequences)
+          private void addSequencesFromServer(ArrayList<Sequence<T>> listOfSequences)
           {
             listOfSequences.ensureCapacity(listOfSequences.size() + serverSegments.size());
 
@@ -326,13 +324,13 @@ public class CachingClusteredClient<T> implements QueryRunner<T>
               final List<SegmentDescriptor> descriptors = entry.getValue();
 
               final QueryRunner clientQueryable = serverView.getQueryRunner(server);
+
               if (clientQueryable == null) {
                 log.error("WTF!? server[%s] doesn't have a client Queryable?", server);
                 continue;
               }
 
               final MultipleSpecificSegmentSpec segmentSpec = new MultipleSpecificSegmentSpec(descriptors);
-              final List<Interval> intervals = segmentSpec.getIntervals();
 
               final Sequence<T> resultSeqToAdd;
               if (!server.isAssignable() || !populateCache || isBySegment) { // Direct server queryable
@@ -472,12 +470,7 @@ public class CachingClusteredClient<T> implements QueryRunner<T>
                 );
               }
 
-              listOfSequences.add(
-                  Pair.of(
-                      new Interval(intervals.get(0).getStart(), intervals.get(intervals.size() - 1).getEnd()),
-                      resultSeqToAdd
-                  )
-              );
+              listOfSequences.add(resultSeqToAdd);
             }
           }
         }// End of Supplier
@@ -485,7 +478,7 @@ public class CachingClusteredClient<T> implements QueryRunner<T>
   }
 
   protected Sequence<T> mergeCachedAndUncachedSequences(
-      List<Pair<Interval, Sequence<T>>> sequencesByInterval,
+      List<Sequence<T>> sequencesByInterval,
       QueryToolChest<T, Query<T>> toolChest
   )
   {
@@ -493,36 +486,11 @@ public class CachingClusteredClient<T> implements QueryRunner<T>
       return Sequences.empty();
     }
 
-    Collections.sort(
-        sequencesByInterval,
-        Ordering.from(Comparators.intervalsByStartThenEnd()).onResultOf(Pair.<Interval, Sequence<T>>lhsFn())
+    return toolChest.mergeSequencesUnordered(
+        Sequences.simple(
+            sequencesByInterval
+        )
     );
-
-    // result sequences from overlapping intervals could start anywhere within that interval
-    // therefore we cannot assume any ordering with respect to the first result from each
-    // and must resort to calling toolchest.mergeSequencesUnordered for those.
-    Iterator<Pair<Interval, Sequence<T>>> iterator = sequencesByInterval.iterator();
-    Pair<Interval, Sequence<T>> current = iterator.next();
-
-    final List<Sequence<T>> orderedSequences = Lists.newLinkedList();
-    List<Sequence<T>> unordered = Lists.newLinkedList();
-
-    unordered.add(current.rhs);
-
-    while (iterator.hasNext()) {
-      Pair<Interval, Sequence<T>> next = iterator.next();
-      if (!next.lhs.overlaps(current.lhs)) {
-        orderedSequences.add(toolChest.mergeSequencesUnordered(Sequences.simple(unordered)));
-        unordered = Lists.newLinkedList();
-      }
-      unordered.add(next.rhs);
-      current = next;
-    }
-    if (!unordered.isEmpty()) {
-      orderedSequences.add(toolChest.mergeSequencesUnordered(Sequences.simple(unordered)));
-    }
-
-    return toolChest.mergeSequencesUnordered(Sequences.simple(orderedSequences));
   }
 
   private static class CachePopulator

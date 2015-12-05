@@ -26,7 +26,7 @@
     </parent>
 
     <artifactId>druid</artifactId>
-    <version>0.7.1-SNAPSHOT</version>
+    <version>0.9.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>${project.groupId}:${project.artifactId}</name>
@@ -61,16 +61,20 @@
         <connection>scm:git:ssh://git@github.com/druid-io/druid.git</connection>
         <developerConnection>scm:git:ssh://git@github.com/druid-io/druid.git</developerConnection>
         <url>https://github.com/druid-io/druid.git</url>
-        <tag>druid-0.7.0-SNAPSHOT</tag>
+        <tag>druid-0.8.0-SNAPSHOT</tag>
     </scm>
 
     <properties>
-        <metamx.java-util.version>0.26.14</metamx.java-util.version>
-        <apache.curator.version>2.7.0</apache.curator.version>
+        <metamx.java-util.version>0.27.4</metamx.java-util.version>
+        <apache.curator.version>2.9.1</apache.curator.version>
         <jetty.version>9.2.5.v20141112</jetty.version>
-        <druid.api.version>0.3.4</druid.api.version>
-        <jackson.version>2.4.4</jackson.version>
-        <log4j.version>2.1</log4j.version>
+        <jersey.version>1.19</jersey.version>
+        <druid.api.version>0.3.13</druid.api.version>
+        <!-- Watch out for Hadoop compatibility when updating to >= 2.5; see https://github.com/druid-io/druid/pull/1669 -->
+        <jackson.version>2.4.6</jackson.version>
+        <log4j.version>2.4.1</log4j.version>
+        <slf4j.version>1.7.12</slf4j.version>
+        <hadoop.compile.version>2.3.0</hadoop.compile.version>
     </properties>
 
     <modules>
@@ -82,6 +86,7 @@
         <module>server</module>
         <module>services</module>
         <module>integration-tests</module>
+        <module>benchmarks</module>
         <module>aws-common</module>
         <!-- Non-default modules -->
         <module>extensions/cassandra-storage</module>
@@ -91,10 +96,20 @@
              Kafka 0.7 is not available in Maven Central -->
         <!-- <module>extensions/kafka&#45;seven</module> -->
         <module>extensions/kafka-eight</module>
+        <module>extensions/kafka-eight-simpleConsumer</module>
         <module>extensions/rabbitmq</module>
         <module>extensions/histogram</module>
         <module>extensions/mysql-metadata-storage</module>
         <module>extensions/postgresql-metadata-storage</module>
+        <module>extensions/azure-extensions</module>
+        <module>extensions/namespace-lookup</module>
+        <module>extensions/kafka-extraction-namespace</module>
+        <module>extensions/cloudfiles-extensions</module>
+        <module>extensions/datasketches</module>
+
+        <!-- distribution packaging -->
+        <module>distribution</module>
+
     </modules>
 
     <dependencyManagement>
@@ -109,12 +124,12 @@
             <dependency>
                 <groupId>com.metamx</groupId>
                 <artifactId>emitter</artifactId>
-                <version>0.3.0</version>
+                <version>0.3.4</version>
             </dependency>
             <dependency>
                 <groupId>com.metamx</groupId>
                 <artifactId>http-client</artifactId>
-                <version>1.0.0</version>
+                <version>1.0.4</version>
             </dependency>
             <dependency>
                 <groupId>com.metamx</groupId>
@@ -124,12 +139,12 @@
             <dependency>
                 <groupId>com.metamx</groupId>
                 <artifactId>bytebuffer-collections</artifactId>
-                <version>0.1.5</version>
+                <version>0.2.1</version>
             </dependency>
             <dependency>
                 <groupId>com.metamx</groupId>
                 <artifactId>server-metrics</artifactId>
-                <version>0.1.0</version>
+                <version>0.2.8</version>
             </dependency>
             <dependency>
                 <groupId>commons-codec</groupId>
@@ -159,7 +174,7 @@
             <dependency>
                 <groupId>com.amazonaws</groupId>
                 <artifactId>aws-java-sdk</artifactId>
-                <version>1.8.11</version>
+                <version>1.10.21</version>
                 <exclusions>
                     <exclusion>
                         <groupId>javax.mail</groupId>
@@ -187,7 +202,7 @@
             <dependency>
                 <groupId>io.airlift</groupId>
                 <artifactId>airline</artifactId>
-                <version>0.6</version>
+                <version>0.7</version>
             </dependency>
             <dependency>
                 <groupId>org.skife.config</groupId>
@@ -316,24 +331,19 @@
                 <version>3.0.0</version>
             </dependency>
             <dependency>
-                <groupId>com.jamesmurty.utils</groupId>
-                <artifactId>java-xmlbuilder</artifactId>
-                <version>0.4</version>
-            </dependency>
-            <dependency>
                 <groupId>org.jdbi</groupId>
                 <artifactId>jdbi</artifactId>
-                <version>2.32</version>
+                <version>2.63.1</version>
             </dependency>
             <dependency>
                 <groupId>com.sun.jersey</groupId>
                 <artifactId>jersey-core</artifactId>
-                <version>1.17.1</version>
+                <version>${jersey.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.sun.jersey.contribs</groupId>
                 <artifactId>jersey-guice</artifactId>
-                <version>1.17.1</version>
+                <version>${jersey.version}</version>
                 <exclusions>
                     <exclusion>
                         <groupId>com.google.inject</groupId>
@@ -348,7 +358,7 @@
             <dependency>
                 <groupId>com.sun.jersey</groupId>
                 <artifactId>jersey-server</artifactId>
-                <version>1.17.1</version>
+                <version>${jersey.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.eclipse.jetty</groupId>
@@ -373,7 +383,7 @@
             <dependency>
                 <groupId>joda-time</groupId>
                 <artifactId>joda-time</artifactId>
-                <version>2.6</version>
+                <version>2.8.2</version>
             </dependency>
             <dependency>
                 <groupId>com.google.code.findbugs</groupId>
@@ -401,6 +411,25 @@
                 <version>${log4j.version}</version>
             </dependency>
             <dependency>
+              <!-- This is not slf4j's version because of performance concerns
+              http://www.slf4j.org/api/org/slf4j/bridge/SLF4JBridgeHandler.html
+              Please make sure to do performance tests before switching this to slf4j
+              Users wishing to use slf4j's solution are encouraged to also use
+              Logback
+              More info at
+              http://logback.qos.ch/manual/configuration.html#LevelChangePropagator
+              http://www.slf4j.org/legacy.html#jul-to-slf4j
+              -->
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-jul</artifactId>
+                <version>${log4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>jcl-over-slf4j</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.lmax</groupId>
                 <artifactId>disruptor</artifactId>
                 <version>3.3.0</version>
@@ -408,7 +437,7 @@
             <dependency>
                 <groupId>net.spy</groupId>
                 <artifactId>spymemcached</artifactId>
-                <version>2.11.4</version>
+                <version>2.11.7</version>
             </dependency>
             <dependency>
                 <groupId>org.antlr</groupId>
@@ -453,35 +482,29 @@
             <dependency>
                 <groupId>net.java.dev.jets3t</groupId>
                 <artifactId>jets3t</artifactId>
-                <version>0.9.1</version>
-                <exclusions>
-                    <exclusion>
-                        <!-- exclude artifact not available in maven central -->
-                        <groupId>com.centerkey.utils</groupId>
-                        <artifactId>barebonesbrowserlaunch</artifactId>
-                    </exclusion>
-                </exclusions>
+                <version>0.9.4</version>
             </dependency>
+            <!-- The htttpcomponents artifacts have non-matching release cadence -->
             <dependency>
                 <groupId>org.apache.httpcomponents</groupId>
                 <artifactId>httpclient</artifactId>
-                <version>4.2</version>
+                <version>4.5.1</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.httpcomponents</groupId>
                 <artifactId>httpcore</artifactId>
-                <version>4.2</version>
+                <version>4.4.3</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
                 <artifactId>hadoop-client</artifactId>
-                <version>2.3.0</version>
+                <version>${hadoop.compile.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.mapdb</groupId>
                 <artifactId>mapdb</artifactId>
-                <version>1.0.6</version>
+                <version>1.0.8</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.derby</groupId>
@@ -541,7 +564,7 @@
             <dependency>
                 <groupId>com.ircclouds.irc</groupId>
                 <artifactId>irc-api</artifactId>
-                <version>1.0-0011</version>
+                <version>1.0-0014</version>
             </dependency>
             <dependency>
                 <groupId>com.maxmind.geoip2</groupId>
@@ -573,6 +596,17 @@
     </dependencyManagement>
 
     <build>
+        <plugins>
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>cobertura-maven-plugin</artifactId>
+            </plugin>
+            <plugin>
+                <groupId>org.eluder.coveralls</groupId>
+                <artifactId>coveralls-maven-plugin</artifactId>
+                <version>4.0.0</version>
+            </plugin>
+        </plugins>
         <pluginManagement>
             <plugins>
                 <plugin>
@@ -580,7 +614,10 @@
                     <artifactId>maven-surefire-plugin</artifactId>
                     <configuration>
                         <!-- locale settings must be set on the command line before startup -->
-                        <argLine>-Duser.language=en -Duser.country=US</argLine>
+                        <!-- set heap size to work around https://github.com/travis-ci/travis-ci/issues/3396 -->
+                        <argLine>-Xmx1024m -Duser.language=en -Duser.country=US -Dfile.encoding=UTF-8 -Djava.util.logging.manager=org.apache.logging.log4j.jul.LogManager</argLine>
+                        <!-- our tests are very verbose, let's keep the volume down -->
+                        <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     </configuration>
                 </plugin>
                 <plugin>
@@ -643,7 +680,7 @@
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-assembly-plugin</artifactId>
-                    <version>2.4</version>
+                    <version>2.5.5</version>
                 </plugin>
                 <plugin>
                     <groupId>org.codehaus.mojo</groupId>
@@ -655,8 +692,60 @@
                     <artifactId>exec-maven-plugin</artifactId>
                     <version>1.2.1</version>
                 </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <configuration>
+                        <!-- jdk8 started linting javadocs by default; ours are not fully compliant -->
+                        <additionalparam>-Xdoclint:none</additionalparam>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>cobertura-maven-plugin</artifactId>
+                    <version>2.7</version>
+                    <configuration>
+                        <instrumentation>
+                            <ignores>
+                                <ignore>io.druid.sql.antlr4.*</ignore>
+                            </ignores>
+                            <excludes>
+                                <exclude>io/druid/sql/antlr4/**/*.class</exclude>
+                            </excludes>
+                        </instrumentation>
+                        <format>xml</format>
+                        <!-- aggregated reports for multi-module projects -->
+                        <aggregate>true</aggregate>
+                    </configuration>
+                </plugin>
             </plugins>
         </pluginManagement>
     </build>
 
+    <profiles>
+        <profile>
+            <id>strict</id>
+            <build>
+                <pluginManagement>
+                    <plugins>
+                        <plugin>
+                            <groupId>org.apache.maven.plugins</groupId>
+                            <artifactId>maven-compiler-plugin</artifactId>
+                            <configuration>
+                                <compilerId>javac-with-errorprone</compilerId>
+                                <forceJavacCompilerUse>true</forceJavacCompilerUse>
+                            </configuration>
+                            <dependencies>
+                                <dependency>
+                                    <groupId>org.codehaus.plexus</groupId>
+                                    <artifactId>plexus-compiler-javac-errorprone</artifactId>
+                                    <version>2.5</version>
+                                </dependency>
+                            </dependencies>
+                        </plugin>
+                    </plugins>
+                </pluginManagement>
+            </build>
+        </profile>
+    </profiles>
 </project>

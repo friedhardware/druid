@@ -27,7 +27,7 @@ import io.druid.indexing.overlord.autoscaling.ec2.EC2EnvironmentConfig;
 import io.druid.indexing.overlord.autoscaling.ec2.EC2NodeData;
 import io.druid.indexing.overlord.autoscaling.ec2.StringEC2UserData;
 import io.druid.jackson.DefaultObjectMapper;
-import junit.framework.Assert;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Arrays;
@@ -54,7 +54,10 @@ public class WorkerBehaviorConfigTest
                     3,
                     5,
                     Arrays.asList("securityGroupIds"),
-                    "keyNames"
+                    "keyNames",
+                    "subnetId",
+                    null,
+                    null
                 ),
                 new StringEC2UserData(
                     "availZone",

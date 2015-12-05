@@ -22,8 +22,9 @@ import com.google.inject.Binder;
 import com.google.inject.Module;
 import com.google.inject.name.Names;
 import com.metamx.common.logger.Logger;
-import io.airlift.command.Command;
+import io.airlift.airline.Command;
 import io.druid.guice.RealtimeModule;
+import io.druid.server.initialization.jetty.ChatHandlerServerModule;
 
 import java.util.List;
 
@@ -54,7 +55,8 @@ public class CliRealtime extends ServerRunnable
             binder.bindConstant().annotatedWith(Names.named("serviceName")).to("druid/realtime");
             binder.bindConstant().annotatedWith(Names.named("servicePort")).to(8084);
           }
-        }
+        },
+        new ChatHandlerServerModule()
     );
   }
 }

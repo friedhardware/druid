@@ -17,20 +17,28 @@
 
 package io.druid.query;
 
+import com.google.common.base.Function;
+import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import io.druid.granularity.QueryGranularity;
 import io.druid.query.aggregation.AggregatorFactory;
 import io.druid.query.aggregation.PostAggregator;
+import io.druid.query.datasourcemetadata.DataSourceMetadataQuery;
+import io.druid.query.dimension.DefaultDimensionSpec;
+import io.druid.query.dimension.DimensionSpec;
 import io.druid.query.filter.AndDimFilter;
 import io.druid.query.filter.DimFilter;
 import io.druid.query.filter.NoopDimFilter;
 import io.druid.query.filter.NotDimFilter;
 import io.druid.query.filter.OrDimFilter;
 import io.druid.query.filter.SelectorDimFilter;
-import io.druid.query.datasourcemetadata.DataSourceMetadataQuery;
 import io.druid.query.metadata.metadata.ColumnIncluderator;
 import io.druid.query.metadata.metadata.SegmentMetadataQuery;
 import io.druid.query.search.SearchResultValue;
+import io.druid.query.search.search.ContainsSearchQuerySpec;
+import io.druid.query.search.search.FragmentSearchQuerySpec;
 import io.druid.query.search.search.InsensitiveContainsSearchQuerySpec;
 import io.druid.query.search.search.SearchQuery;
 import io.druid.query.search.search.SearchQuerySpec;
@@ -44,6 +52,7 @@ import io.druid.query.timeseries.TimeseriesQuery;
 import org.joda.time.DateTime;
 import org.joda.time.Interval;
 
+import javax.annotation.Nullable;
 import java.util.List;
 import java.util.Map;
 
@@ -51,6 +60,16 @@ import java.util.Map;
  */
 public class Druids
 {
+  public static final Function<String, DimensionSpec> DIMENSION_IDENTITY = new Function<String, DimensionSpec>()
+  {
+    @Nullable
+    @Override
+    public DimensionSpec apply(String input)
+    {
+      return new DefaultDimensionSpec(input, input);
+    }
+  };
+
   private Druids()
   {
     throw new AssertionError();
@@ -60,7 +79,7 @@ public class Druids
    * A Builder for AndDimFilter.
    *
    * Required: fields() must be called before build()
-   * 
+   *
    * Usage example:
    * <pre><code>
    *   AndDimFilter andDimFilter = Druids.newAndDimFilterBuilder()
@@ -104,9 +123,9 @@ public class Druids
 
   /**
    * A Builder for OrDimFilter.
-   * 
+   *
    * Required: fields() must be called before build()
-   * 
+   *
    * Usage example:
    * <pre><code>
    *   OrDimFilter orDimFilter = Druids.newOrDimFilterBuilder()
@@ -159,9 +178,9 @@ public class Druids
 
   /**
    * A Builder for NotDimFilter.
-   * 
+   *
    * Required: field() must be called before build()
-   * 
+   *
    * Usage example:
    * <pre><code>
    *   NotDimFilter notDimFilter = Druids.newNotDimFilterBuilder()
@@ -205,9 +224,9 @@ public class Druids
 
   /**
    * A Builder for SelectorDimFilter.
-   * 
+   *
    * Required: dimension() and value() must be called before build()
-   * 
+   *
    * Usage example:
    * <pre><code>
    *   Selector selDimFilter = Druids.newSelectorDimFilterBuilder()
@@ -284,10 +303,10 @@ public class Druids
 
   /**
    * A Builder for TimeseriesQuery.
-   * 
+   *
    * Required: dataSource(), intervals(), and aggregators() must be called before build()
    * Optional: filters(), granularity(), postAggregators(), and context() can be called before build()
-   * 
+   *
    * Usage example:
    * <pre><code>
    *   TimeseriesQuery query = Druids.newTimeseriesQueryBuilder()
@@ -482,11 +501,11 @@ public class Druids
 
   /**
    * A Builder for SearchQuery.
-   * 
+   *
    * Required: dataSource(), intervals(), dimensions() and query() must be called before build()
-   * 
+   *
    * Optional: filters(), granularity(), and context() can be called before build()
-   * 
+   *
    * Usage example:
    * <pre><code>
    *   SearchQuery query = Druids.newSearchQueryBuilder()
@@ -506,7 +525,7 @@ public class Druids
     private QueryGranularity granularity;
     private int limit;
     private QuerySegmentSpec querySegmentSpec;
-    private List<String> dimensions;
+    private List<DimensionSpec> dimensions;
     private SearchQuerySpec querySpec;
     private Map<String, Object> context;
 
@@ -635,11 +654,23 @@ public class Druids
 
     public SearchQueryBuilder dimensions(String d)
     {
+      dimensions = ImmutableList.of(DIMENSION_IDENTITY.apply(d));
+      return this;
+    }
+
+    public SearchQueryBuilder dimensions(Iterable<String> d)
+    {
+      dimensions = ImmutableList.copyOf(Iterables.transform(d, DIMENSION_IDENTITY));
+      return this;
+    }
+
+    public SearchQueryBuilder dimensions(DimensionSpec d)
+    {
       dimensions = Lists.newArrayList(d);
       return this;
     }
 
-    public SearchQueryBuilder dimensions(List<String> d)
+    public SearchQueryBuilder dimensions(List<DimensionSpec> d)
     {
       dimensions = d;
       return this;
@@ -653,13 +684,41 @@ public class Druids
 
     public SearchQueryBuilder query(String q)
     {
+      Preconditions.checkNotNull(q, "no value");
       querySpec = new InsensitiveContainsSearchQuerySpec(q);
       return this;
     }
 
     public SearchQueryBuilder query(Map<String, Object> q)
     {
-      querySpec = new InsensitiveContainsSearchQuerySpec((String) q.get("value"));
+      String value = Preconditions.checkNotNull(q.get("value"), "no value").toString();
+      querySpec = new InsensitiveContainsSearchQuerySpec(value);
+      return this;
+    }
+
+    public SearchQueryBuilder query(String q, boolean caseSensitive)
+    {
+      Preconditions.checkNotNull(q, "no value");
+      querySpec = new ContainsSearchQuerySpec(q, caseSensitive);
+      return this;
+    }
+
+    public SearchQueryBuilder query(Map<String, Object> q, boolean caseSensitive)
+    {
+      String value = Preconditions.checkNotNull(q.get("value"), "no value").toString();
+      querySpec = new ContainsSearchQuerySpec(value, caseSensitive);
+      return this;
+    }
+
+    public SearchQueryBuilder fragments(List<String> q)
+    {
+      return fragments(q, false);
+    }
+
+    public SearchQueryBuilder fragments(List<String> q, boolean caseSensitive)
+    {
+      Preconditions.checkNotNull(q, "no value");
+      querySpec = new FragmentSearchQuerySpec(q, caseSensitive);
       return this;
     }
 
@@ -677,9 +736,9 @@ public class Druids
 
   /**
    * A Builder for TimeBoundaryQuery.
-   * 
+   *
    * Required: dataSource() must be called before build()
-   * 
+   *
    * Usage example:
    * <pre><code>
    *   TimeBoundaryQuery query = new MaxTimeQueryBuilder()
@@ -773,9 +832,9 @@ public class Druids
 
   /**
    * A Builder for Result.
-   * 
+   *
    * Required: timestamp() and value() must be called before build()
-   * 
+   *
    * Usage example:
    * <pre><code>
    *   Result&lt;T&gt; result = Druids.newResultBuilder()
@@ -839,9 +898,9 @@ public class Druids
 
   /**
    * A Builder for SegmentMetadataQuery.
-   * 
+   *
    * Required: dataSource(), intervals() must be called before build()
-   * 
+   *
    * Usage example:
    * <pre><code>
    *   SegmentMetadataQuery query = new SegmentMetadataQueryBuilder()
@@ -876,7 +935,9 @@ public class Druids
           querySegmentSpec,
           toInclude,
           merge,
-          context
+          context,
+          null,
+          false
       );
     }
 
@@ -947,9 +1008,9 @@ public class Druids
 
   /**
    * A Builder for SelectQuery.
-   * 
+   *
    * Required: dataSource(), intervals() must be called before build()
-   * 
+   *
    * Usage example:
    * <pre><code>
    *   SelectQuery query = new SelectQueryBuilder()

@@ -22,10 +22,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteStreams;
 import com.google.common.io.Files;
 import com.google.inject.Inject;
+import com.metamx.common.CompressionUtils;
 import com.metamx.common.logger.Logger;
 import io.druid.segment.SegmentUtils;
 import io.druid.timeline.DataSegment;
-import io.druid.utils.CompressionUtils;
 
 import java.io.File;
 import java.io.IOException;
@@ -47,18 +47,22 @@ public class LocalDataSegmentPusher implements DataSegmentPusher
   {
     this.config = config;
     this.jsonMapper = jsonMapper;
+
+    log.info("Configured local filesystem as deep storage");
   }
 
   @Override
   public String getPathForHadoop(String dataSource)
   {
-    return String.format("file://%s/%s", config.getStorageDirectory(), dataSource);
+    return new File(config.getStorageDirectory().getAbsoluteFile(), dataSource).toURI().toString();
   }
 
   @Override
   public DataSegment push(File dataSegmentFile, DataSegment segment) throws IOException
   {
     File outDir = new File(config.getStorageDirectory(), DataSegmentPusherUtil.getStorageDir(segment));
+
+    log.info("Copying segment[%s] to local filesystem at location[%s]", segment.getIdentifier(), outDir.toString());
 
     if (dataSegmentFile.equals(outDir)) {
       long size = 0;
@@ -74,7 +78,9 @@ public class LocalDataSegmentPusher implements DataSegmentPusher
       );
     }
 
-    outDir.mkdirs();
+    if (!outDir.mkdirs() && !outDir.isDirectory()) {
+      throw new IOException(String.format("Cannot create directory[%s]", outDir));
+    }
     File outFile = new File(outDir, "index.zip");
     log.info("Compressing files from[%s] to [%s]", dataSegmentFile, outFile);
     long size = CompressionUtils.zip(dataSegmentFile, outFile);

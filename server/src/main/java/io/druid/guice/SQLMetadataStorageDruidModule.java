@@ -20,10 +20,10 @@ package io.druid.guice;
 import com.google.inject.Binder;
 import com.google.inject.Key;
 import com.google.inject.Module;
+import io.druid.audit.AuditManager;
 import io.druid.indexer.MetadataStorageUpdaterJobHandler;
 import io.druid.indexer.SQLMetadataStorageUpdaterJobHandler;
 import io.druid.indexing.overlord.IndexerMetadataStorageCoordinator;
-import io.druid.metadata.MetadataStorageActionHandlerFactory;
 import io.druid.metadata.IndexerSQLMetadataStorageCoordinator;
 import io.druid.metadata.MetadataRuleManager;
 import io.druid.metadata.MetadataRuleManagerProvider;
@@ -31,6 +31,7 @@ import io.druid.metadata.MetadataSegmentManager;
 import io.druid.metadata.MetadataSegmentManagerProvider;
 import io.druid.metadata.MetadataSegmentPublisher;
 import io.druid.metadata.MetadataSegmentPublisherProvider;
+import io.druid.metadata.MetadataStorageActionHandlerFactory;
 import io.druid.metadata.MetadataStorageConnector;
 import io.druid.metadata.MetadataStorageProvider;
 import io.druid.metadata.NoopMetadataStorageProvider;
@@ -42,6 +43,10 @@ import io.druid.metadata.SQLMetadataSegmentManagerProvider;
 import io.druid.metadata.SQLMetadataSegmentPublisher;
 import io.druid.metadata.SQLMetadataSegmentPublisherProvider;
 import io.druid.metadata.SQLMetadataStorageActionHandlerFactory;
+import io.druid.server.audit.AuditManagerProvider;
+import io.druid.server.audit.SQLAuditManager;
+import io.druid.server.audit.SQLAuditManagerConfig;
+import io.druid.server.audit.SQLAuditManagerProvider;
 
 public class SQLMetadataStorageDruidModule implements Module
 {
@@ -135,6 +140,20 @@ public class SQLMetadataStorageDruidModule implements Module
         Key.get(SQLMetadataStorageUpdaterJobHandler.class),
         defaultPropertyValue
     );
+    PolyBind.createChoiceWithDefault(
+        binder,
+        PROPERTY,
+        Key.get(AuditManager.class),
+        Key.get(SQLAuditManager.class),
+        defaultPropertyValue
+    );
+    PolyBind.createChoiceWithDefault(
+        binder,
+        PROPERTY,
+        Key.get(AuditManagerProvider.class),
+        Key.get(SQLAuditManagerProvider.class),
+        defaultPropertyValue
+    );
   }
 
   @Override
@@ -178,11 +197,23 @@ public class SQLMetadataStorageDruidModule implements Module
     PolyBind.optionBinder(binder, Key.get(IndexerMetadataStorageCoordinator.class))
             .addBinding(type)
             .to(IndexerSQLMetadataStorageCoordinator.class)
-            .in(LazySingleton.class);
+            .in(ManageLifecycle.class);
 
     PolyBind.optionBinder(binder, Key.get(MetadataStorageUpdaterJobHandler.class))
             .addBinding(type)
             .to(SQLMetadataStorageUpdaterJobHandler.class)
+            .in(LazySingleton.class);
+
+    JsonConfigProvider.bind(binder, "druid.audit.manager", SQLAuditManagerConfig.class);
+
+    PolyBind.optionBinder(binder, Key.get(AuditManager.class))
+            .addBinding(type)
+            .to(SQLAuditManager.class)
+            .in(LazySingleton.class);
+
+    PolyBind.optionBinder(binder, Key.get(AuditManagerProvider.class))
+            .addBinding(type)
+            .to(SQLAuditManagerProvider.class)
             .in(LazySingleton.class);
   }
 }

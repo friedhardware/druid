@@ -31,6 +31,7 @@ import org.junit.Assert;
 import org.junit.Ignore;
 import org.junit.Test;
 
+import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.StringWriter;
@@ -178,5 +179,18 @@ public class JettyTest extends BaseJettyTest
     );
 
     latch.await(5, TimeUnit.SECONDS);
+  }
+
+  @Test
+  public void testExtensionAuthFilter() throws Exception
+  {
+    URL url = new URL("http://localhost:" + port + "/default");
+    HttpURLConnection get = (HttpURLConnection) url.openConnection();
+    get.setRequestProperty(DummyAuthFilter.AUTH_HDR, DummyAuthFilter.SECRET_USER);
+    Assert.assertEquals(HttpServletResponse.SC_OK, get.getResponseCode());
+
+    get = (HttpURLConnection) url.openConnection();
+    get.setRequestProperty(DummyAuthFilter.AUTH_HDR, "hacker");
+    Assert.assertEquals(HttpServletResponse.SC_UNAUTHORIZED, get.getResponseCode());
   }
 }

@@ -20,6 +20,7 @@ package io.druid.segment.indexing;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.io.Files;
+import io.druid.segment.IndexSpec;
 import io.druid.segment.realtime.plumber.IntervalStartVersioningPolicy;
 import io.druid.segment.realtime.plumber.RejectionPolicyFactory;
 import io.druid.segment.realtime.plumber.ServerTimeRejectionPolicyFactory;
@@ -42,10 +43,7 @@ public class RealtimeTuningConfig implements TuningConfig
   private static final RejectionPolicyFactory defaultRejectionPolicyFactory = new ServerTimeRejectionPolicyFactory();
   private static final int defaultMaxPendingPersists = 0;
   private static final ShardSpec defaultShardSpec = new NoneShardSpec();
-  private static final boolean defaultPersistInHeap = false;
-  private static final boolean defaultIngestOffheap = false;
-  private static final int defaultBufferSize = 128 * 1024* 1024; // 128M
-
+  private static final IndexSpec defaultIndexSpec = new IndexSpec();
 
   // Might make sense for this to be a builder
   public static RealtimeTuningConfig makeDefaultTuningConfig()
@@ -59,9 +57,7 @@ public class RealtimeTuningConfig implements TuningConfig
         defaultRejectionPolicyFactory,
         defaultMaxPendingPersists,
         defaultShardSpec,
-        defaultPersistInHeap,
-        defaultIngestOffheap,
-        defaultBufferSize
+        defaultIndexSpec
     );
   }
 
@@ -73,9 +69,7 @@ public class RealtimeTuningConfig implements TuningConfig
   private final RejectionPolicyFactory rejectionPolicyFactory;
   private final int maxPendingPersists;
   private final ShardSpec shardSpec;
-  private final boolean persistInHeap;
-  private final boolean ingestOffheap;
-  private final int bufferSize;
+  private final IndexSpec indexSpec;
 
   @JsonCreator
   public RealtimeTuningConfig(
@@ -87,9 +81,7 @@ public class RealtimeTuningConfig implements TuningConfig
       @JsonProperty("rejectionPolicy") RejectionPolicyFactory rejectionPolicyFactory,
       @JsonProperty("maxPendingPersists") Integer maxPendingPersists,
       @JsonProperty("shardSpec") ShardSpec shardSpec,
-      @JsonProperty("persistInHeap") Boolean persistInHeap,
-      @JsonProperty("ingestOffheap") Boolean ingestOffheap,
-      @JsonProperty("buffersize") Integer bufferSize
+      @JsonProperty("indexSpec") IndexSpec indexSpec
   )
   {
     this.maxRowsInMemory = maxRowsInMemory == null ? defaultMaxRowsInMemory : maxRowsInMemory;
@@ -104,10 +96,7 @@ public class RealtimeTuningConfig implements TuningConfig
                                   : rejectionPolicyFactory;
     this.maxPendingPersists = maxPendingPersists == null ? defaultMaxPendingPersists : maxPendingPersists;
     this.shardSpec = shardSpec == null ? defaultShardSpec : shardSpec;
-    this.persistInHeap = persistInHeap == null ? defaultPersistInHeap : persistInHeap;
-    this.ingestOffheap = ingestOffheap == null ? defaultIngestOffheap : ingestOffheap;
-    this.bufferSize = bufferSize == null ? defaultBufferSize : bufferSize;
-
+    this.indexSpec = indexSpec == null ? defaultIndexSpec : indexSpec;
   }
 
   @JsonProperty
@@ -159,19 +148,9 @@ public class RealtimeTuningConfig implements TuningConfig
   }
 
   @JsonProperty
-  public boolean isPersistInHeap()
+  public IndexSpec getIndexSpec()
   {
-    return persistInHeap;
-  }
-
-  @JsonProperty
-  public boolean isIngestOffheap(){
-    return ingestOffheap;
-  }
-
-  @JsonProperty
-  public int getBufferSize(){
-    return bufferSize;
+    return indexSpec;
   }
 
   public RealtimeTuningConfig withVersioningPolicy(VersioningPolicy policy)
@@ -185,9 +164,7 @@ public class RealtimeTuningConfig implements TuningConfig
         rejectionPolicyFactory,
         maxPendingPersists,
         shardSpec,
-        persistInHeap,
-        ingestOffheap,
-        bufferSize
+        indexSpec
     );
   }
 
@@ -202,9 +179,7 @@ public class RealtimeTuningConfig implements TuningConfig
         rejectionPolicyFactory,
         maxPendingPersists,
         shardSpec,
-        persistInHeap,
-        ingestOffheap,
-        bufferSize
+        indexSpec
     );
   }
 }

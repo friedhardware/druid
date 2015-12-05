@@ -37,6 +37,7 @@ import io.druid.query.AbstractPrioritizedCallable;
 import io.druid.query.ConcatQueryRunner;
 import io.druid.query.GroupByParallelQueryRunner;
 import io.druid.query.Query;
+import io.druid.query.QueryContextKeys;
 import io.druid.query.QueryInterruptedException;
 import io.druid.query.QueryRunner;
 import io.druid.query.QueryRunnerFactory;
@@ -47,8 +48,8 @@ import io.druid.segment.StorageAdapter;
 import io.druid.segment.incremental.IncrementalIndex;
 
 import java.nio.ByteBuffer;
-import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -115,7 +116,7 @@ public class GroupByQueryRunnerFactory implements QueryRunnerFactory<Row, GroupB
                               config.get(),
                               computationBufferPool
                           );
-                      final Pair<List, Accumulator<List, Row>> bySegmentAccumulatorPair = GroupByQueryHelper.createBySegmentAccumulatorPair();
+                      final Pair<Queue, Accumulator<Queue, Row>> bySegmentAccumulatorPair = GroupByQueryHelper.createBySegmentAccumulatorPair();
                       final int priority = query.getContextPriority(0);
                       final boolean bySegment = query.getContextBySegment(false);
 
@@ -142,7 +143,7 @@ public class GroupByQueryRunnerFactory implements QueryRunnerFactory<Row, GroupB
                       );
                       try {
                         queryWatcher.registerQuery(query, future);
-                        final Number timeout = query.getContextValue("timeout", (Number) null);
+                        final Number timeout = query.getContextValue(QueryContextKeys.TIMEOUT, (Number) null);
                         if (timeout == null) {
                           future.get();
                         } else {

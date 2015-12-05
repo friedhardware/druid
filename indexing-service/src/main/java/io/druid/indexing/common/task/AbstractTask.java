@@ -28,8 +28,11 @@ import io.druid.indexing.common.TaskToolbox;
 import io.druid.indexing.common.actions.LockListAction;
 import io.druid.query.Query;
 import io.druid.query.QueryRunner;
+import org.joda.time.DateTime;
+import org.joda.time.Interval;
 
 import java.io.IOException;
+import java.util.Map;
 
 public abstract class AbstractTask implements Task
 {
@@ -47,22 +50,36 @@ public abstract class AbstractTask implements Task
   @JsonIgnore
   private final String dataSource;
 
-  protected AbstractTask(String id, String dataSource)
+  private final Map<String, Object> context;
+
+  protected AbstractTask(String id, String dataSource, Map<String, Object> context)
   {
-    this(id, id, new TaskResource(id, 1), dataSource);
+    this(id, id, new TaskResource(id, 1), dataSource, context);
   }
 
-  protected AbstractTask(String id, String groupId, String dataSource)
+  protected AbstractTask(String id, String groupId, String dataSource, Map<String, Object> context)
   {
-    this(id, groupId, new TaskResource(id, 1), dataSource);
+    this(id, groupId, new TaskResource(id, 1), dataSource, context);
   }
 
-  protected AbstractTask(String id, String groupId, TaskResource taskResource, String dataSource)
+  protected AbstractTask(String id, String groupId, TaskResource taskResource, String dataSource, Map<String, Object> context)
   {
     this.id = Preconditions.checkNotNull(id, "id");
     this.groupId = Preconditions.checkNotNull(groupId, "groupId");
     this.taskResource = Preconditions.checkNotNull(taskResource, "resource");
     this.dataSource = Preconditions.checkNotNull(dataSource, "dataSource");
+    this.context = context;
+  }
+
+  public static String makeId(String id, final String typeName, String dataSource, Interval interval)
+  {
+    return id != null ? id : joinId(
+        typeName,
+        dataSource,
+        interval.getStart(),
+        interval.getEnd(),
+        new DateTime().toString()
+    );
   }
 
   @JsonProperty
@@ -109,6 +126,19 @@ public abstract class AbstractTask implements Task
   public String getClasspathPrefix()
   {
     return null;
+  }
+
+  @Override
+  public boolean canRestore()
+  {
+    return false;
+  }
+
+  @Override
+  public void stopGracefully()
+  {
+    // Should not be called when canRestore = false.
+    throw new UnsupportedOperationException("Cannot stop gracefully");
   }
 
   @Override
@@ -166,4 +196,18 @@ public abstract class AbstractTask implements Task
   {
     return toolbox.getTaskActionClient().submit(new LockListAction());
   }
+
+  @Override
+  @JsonProperty
+  public Map<String, Object> getContext()
+  {
+    return context;
+  }
+
+  @Override
+  public Object getContextValue(String key)
+  {
+    return context == null ? null : context.get(key);
+  }
+
 }

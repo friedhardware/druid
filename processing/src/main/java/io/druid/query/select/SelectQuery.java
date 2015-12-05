@@ -20,6 +20,7 @@ package io.druid.query.select;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonTypeName;
+import com.google.common.base.Preconditions;
 import io.druid.granularity.QueryGranularity;
 import io.druid.query.BaseQuery;
 import io.druid.query.DataSource;
@@ -60,6 +61,8 @@ public class SelectQuery extends BaseQuery<Result<SelectResultValue>>
     this.dimensions = dimensions;
     this.metrics = metrics;
     this.pagingSpec = pagingSpec;
+
+    Preconditions.checkNotNull(pagingSpec, "must specify a pagingSpec");
   }
 
   @Override

@@ -129,8 +129,8 @@ public class Rowboat implements Comparable<Rowboat>
   {
     return "Rowboat{" +
            "timestamp=" + new DateTime(timestamp).toString() +
-           ", dims=" + (dims == null ? null : Arrays.asList(dims)) +
-           ", metrics=" + (metrics == null ? null : Arrays.asList(metrics)) +
+           ", dims=" + Arrays.deepToString(dims) +
+           ", metrics=" + Arrays.toString(metrics) +
            ", comprisedRows=" + comprisedRows +
            '}';
   }

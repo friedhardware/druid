@@ -17,8 +17,11 @@
 
 package io.druid.segment.realtime;
 
+import com.fasterxml.jackson.databind.InjectableValues;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.metamx.common.Granularity;
+import io.druid.client.cache.CacheConfig;
+import io.druid.client.cache.MapCache;
 import io.druid.data.input.impl.DimensionsSpec;
 import io.druid.data.input.impl.JSONParseSpec;
 import io.druid.data.input.impl.StringInputRowParser;
@@ -27,54 +30,91 @@ import io.druid.granularity.QueryGranularity;
 import io.druid.jackson.DefaultObjectMapper;
 import io.druid.query.aggregation.AggregatorFactory;
 import io.druid.query.aggregation.CountAggregatorFactory;
+import io.druid.segment.TestHelper;
 import io.druid.segment.indexing.DataSchema;
 import io.druid.segment.indexing.RealtimeIOConfig;
 import io.druid.segment.indexing.RealtimeTuningConfig;
 import io.druid.segment.indexing.granularity.UniformGranularitySpec;
 import io.druid.segment.realtime.plumber.RealtimePlumberSchool;
-import junit.framework.Assert;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.Arrays;
+import java.util.Map;
 
 /**
  */
 public class FireDepartmentTest
 {
+
+  public static final CacheConfig NO_CACHE_CONFIG = new CacheConfig()
+  {
+    @Override
+    public boolean isPopulateCache()
+    {
+      return false;
+    }
+
+    @Override
+    public boolean isUseCache()
+    {
+      return false;
+    }
+  };
+
   @Test
   public void testSerde() throws Exception
   {
     ObjectMapper jsonMapper = new DefaultObjectMapper();
+    jsonMapper.setInjectableValues(new InjectableValues.Std().addValue(ObjectMapper.class, jsonMapper));
 
     FireDepartment schema = new FireDepartment(
         new DataSchema(
             "foo",
-            new StringInputRowParser(
-                new JSONParseSpec(
-                    new TimestampSpec(
-                        "timestamp",
-                        "auto"
-                    ),
-                    new DimensionsSpec(
-                        Arrays.asList("dim1", "dim2"),
-                        null,
-                        null
+            jsonMapper.convertValue(
+                new StringInputRowParser(
+                    new JSONParseSpec(
+                        new TimestampSpec(
+                            "timestamp",
+                            "auto",
+                            null
+                        ),
+                        new DimensionsSpec(
+                            Arrays.asList("dim1", "dim2"),
+                            null,
+                            null
+                        )
                     )
-                )
+                ),
+                Map.class
             ),
             new AggregatorFactory[]{
                 new CountAggregatorFactory("count")
             },
-            new UniformGranularitySpec(Granularity.HOUR, QueryGranularity.MINUTE, null)
+            new UniformGranularitySpec(Granularity.HOUR, QueryGranularity.MINUTE, null),
+            jsonMapper
         ),
         new RealtimeIOConfig(
             null,
             new RealtimePlumberSchool(
-                null, null, null, null, null, null, null
-            )
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                TestHelper.getTestIndexMerger(),
+                TestHelper.getTestIndexIO(),
+                MapCache.create(0),
+                NO_CACHE_CONFIG,
+                TestHelper.getObjectMapper()
+
+            ),
+            null
         ),
         new RealtimeTuningConfig(
-            null, null, null, null, null, null, null, null, false, false, null
+            null, null, null, null, null, null, null, null, null
         )
     );
 

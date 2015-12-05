@@ -17,6 +17,7 @@
 
 package io.druid.segment;
 
+import io.druid.segment.column.ColumnCapabilities;
 import io.druid.segment.data.Indexed;
 import org.joda.time.DateTime;
 import org.joda.time.Interval;
@@ -29,9 +30,20 @@ public interface StorageAdapter extends CursorFactory
   public Interval getInterval();
   public Indexed<String> getAvailableDimensions();
   public Iterable<String> getAvailableMetrics();
-  public int getDimensionCardinality(String dimension);
+
+  /**
+   * Returns the number of distinct values for the given dimension column
+   * For dimensions of unknown cardinality, e.g. __time this currently returns
+   * Integer.MAX_VALUE
+   *
+   * @param column
+   * @return
+   */
+  public int getDimensionCardinality(String column);
   public DateTime getMinTime();
   public DateTime getMaxTime();
   public Capabilities getCapabilities();
+  public ColumnCapabilities getColumnCapabilities(String column);
+  public int getNumRows();
   public DateTime getMaxIngestedEventTime();
 }

@@ -17,6 +17,7 @@
 
 package io.druid.indexer;
 
+import com.fasterxml.jackson.databind.InjectableValues;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
@@ -45,7 +46,11 @@ import java.util.List;
  */
 public class HadoopDruidIndexerConfigTest
 {
-  private static final ObjectMapper jsonMapper = new DefaultObjectMapper();
+  private static final ObjectMapper jsonMapper;
+  static {
+    jsonMapper = new DefaultObjectMapper();
+    jsonMapper.setInjectableValues(new InjectableValues.Std().addValue(ObjectMapper.class, jsonMapper));
+  }
 
   public static <T> T jsonReadWriteRead(String s, Class<T> klass)
   {
@@ -96,7 +101,14 @@ public class HadoopDruidIndexerConfigTest
     );
 
     Bucket bucket = new Bucket(4711, new DateTime(2012, 07, 10, 5, 30), 4712);
-    Path path = cfg.makeSegmentOutputPath(new DistributedFileSystem(), bucket);
+    Path path = JobHelper.makeSegmentOutputPath(
+        new Path(cfg.getSchema().getIOConfig().getSegmentOutputPath()),
+        new DistributedFileSystem(),
+        cfg.getSchema().getDataSchema().getDataSource(),
+        cfg.getSchema().getTuningConfig().getVersion(),
+        cfg.getSchema().getDataSchema().getGranularitySpec().bucketInterval(bucket.time).get(),
+        bucket.partitionNum
+    );
     Assert.assertEquals(
         "hdfs://server:9100/tmp/druid/datatest/source/20120710T050000.000Z_20120710T060000.000Z/some_brand_new_version/4712",
         path.toString()
@@ -142,9 +154,16 @@ public class HadoopDruidIndexerConfigTest
     );
 
     Bucket bucket = new Bucket(4711, new DateTime(2012, 07, 10, 5, 30), 4712);
-    Path path = cfg.makeSegmentOutputPath(new LocalFileSystem(), bucket);
+    Path path = JobHelper.makeSegmentOutputPath(
+        new Path(cfg.getSchema().getIOConfig().getSegmentOutputPath()),
+        new LocalFileSystem(),
+        cfg.getSchema().getDataSchema().getDataSource(),
+        cfg.getSchema().getTuningConfig().getVersion(),
+        cfg.getSchema().getDataSchema().getGranularitySpec().bucketInterval(bucket.time).get(),
+        bucket.partitionNum
+    );
     Assert.assertEquals(
-        "/tmp/dru:id/data:test/the:data:source/2012-07-10T05:00:00.000Z_2012-07-10T06:00:00.000Z/some:brand:new:version/4712",
+        "file:/tmp/dru:id/data:test/the:data:source/2012-07-10T05:00:00.000Z_2012-07-10T06:00:00.000Z/some:brand:new:version/4712",
         path.toString()
     );
 
@@ -161,28 +180,31 @@ public class HadoopDruidIndexerConfigTest
 
     HadoopIngestionSpec spec = new HadoopIngestionSpec(
         new DataSchema(
-            "foo", null, new AggregatorFactory[0], new UniformGranularitySpec(
-            Granularity.MINUTE,
-            QueryGranularity.MINUTE,
-            ImmutableList.of(new Interval("2010-01-01/P1D"))
-        )
-        ), new HadoopIOConfig(ImmutableMap.<String, Object>of("paths", "bar", "type", "static"), null, null),
+            "foo",
+            null,
+            new AggregatorFactory[0],
+            new UniformGranularitySpec(
+                Granularity.MINUTE,
+                QueryGranularity.MINUTE,
+                ImmutableList.of(new Interval("2010-01-01/P1D"))
+            ),
+            jsonMapper
+        ),
+        new HadoopIOConfig(ImmutableMap.<String, Object>of("paths", "bar", "type", "static"), null, null),
         new HadoopTuningConfig(
             null,
             null,
             null,
             ImmutableMap.of(new DateTime("2010-01-01T01:00:00"), specs),
             null,
+            null,
             false,
             false,
             false,
             false,
             null,
             false,
-            false,
-            false,
-            null,
-            null
+            false
         )
     );
     HadoopDruidIndexerConfig config = HadoopDruidIndexerConfig.fromSpec(spec);

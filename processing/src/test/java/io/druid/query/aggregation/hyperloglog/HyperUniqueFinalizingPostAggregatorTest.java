@@ -34,9 +34,9 @@ public class HyperUniqueFinalizingPostAggregatorTest
   @Test
   public void testCompute() throws Exception
   {
-    Random random = new Random(0l);
+    Random random = new Random(0L);
     HyperUniqueFinalizingPostAggregator postAggregator = new HyperUniqueFinalizingPostAggregator(
-        "uniques"
+        "uniques", "uniques"
     );
     HyperLogLogCollector collector = HyperLogLogCollector.makeLatestCollector();
 
